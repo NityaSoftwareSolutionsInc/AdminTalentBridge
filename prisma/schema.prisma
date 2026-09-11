@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["talentbridge"]
+}
+
+enum TbRole {
+  recruiter
+  sales
+  operations
+  leadership
+  admin
+
+  @@schema("talentbridge")
+}
+
+model PlatformAdmin {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("platform_admins")
+  @@schema("talentbridge")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users       User[]
+  memberships Membership[]
+  settings    TenantSettings?
+
+  @@map("tenants")
+  @@schema("talentbridge")
+}
+
+model TenantSettings {
+  id                       String   @id @default(uuid())
+  tenantId                 String   @unique @map("tenant_id")
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  relationshipStages       String[] @default(["Lead", "Suspect", "Prospect", "Customer"]) @map("relationship_stages")
+  submissionStages         String[] @default(["Submitted", "Client Review", "Interview", "Rejected", "Offer", "Placement"]) @map("submission_stages")
+  slaRequirementNoSubDays  Int      @default(3) @map("sla_requirement_no_sub_days")
+  slaSubmissionFeedbackDays Int     @default(5) @map("sla_submission_feedback_days")
+  slaInterviewFeedbackDays Int      @default(1) @map("sla_interview_feedback_days")
+  slaClientLastContactDays Int      @default(21) @map("sla_client_last_contact_days")
+  slaMsaExpiryDays         Int      @default(30) @map("sla_msa_expiry_days")
+  recordingPlaybackAllowed Boolean  @default(false) @map("recording_playback_allowed")
+
+  @@map("tenant_settings")
+  @@schema("talentbridge")
+}
+
+model User {
+  id                     String    @id @default(uuid())
+  tenantId               String    @map("tenant_id")
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email                  String
+  name                   String
+  title                  String    @default("")
+  enabled                Boolean   @default(true)
+  createdAt              DateTime  @default(now()) @map("created_at")
+  passwordHash           String?   @map("password_hash")
+  passwordSetAt          DateTime? @map("password_set_at")
+  inviteSentAt           DateTime? @map("invite_sent_at")
+  passwordResetTokenHash String?   @map("password_reset_token_hash")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+  passwordResetKind      String?   @map("password_reset_kind")
+
+  memberships Membership[]
+
+  @@unique([tenantId, email])
+  @@map("users")
+  @@schema("talentbridge")
+}
+
+model Membership {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String  @map("user_id")
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        TbRole
+  permissions String[] @default([])
+
+  @@unique([tenantId, userId])
+  @@map("memberships")
+  @@schema("talentbridge")
+}
