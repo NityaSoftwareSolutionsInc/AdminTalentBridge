@@ -27,12 +27,50 @@ type InviteResult = {
   email?: string;
 };
 
+type AuditRow = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  actorId: string;
+  actorName: string;
+  actorEmail: string;
+  before: string;
+  after: string;
+  createdAt: string;
+};
+
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
   });
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function auditAfterPreview(after: string) {
+  if (!after) return "—";
+  try {
+    const parsed = JSON.parse(after) as Record<string, unknown>;
+    if (parsed.name) return String(parsed.name);
+    if (parsed.email) return String(parsed.email);
+    if (parsed.enabled != null) return parsed.enabled ? "enabled" : "disabled";
+    return after.slice(0, 80);
+  } catch {
+    return after.slice(0, 80);
+  }
 }
 
 function cn(...parts: Array<string | false | null | undefined>) {
@@ -64,6 +102,7 @@ export default function TenantsPage() {
   const [sessionName, setSessionName] = useState("");
   const [sendgridConfigured, setSendgridConfigured] = useState(false);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,16 +111,22 @@ export default function TenantsPage() {
   const [adminForms, setAdminForms] = useState<Record<string, { name: string; email: string }>>({});
 
   const load = useCallback(async () => {
-    const [sessionRes, tenantsRes] = await Promise.all([fetch("/api/session"), fetch("/api/tenants")]);
+    const [sessionRes, tenantsRes, auditRes] = await Promise.all([
+      fetch("/api/session"),
+      fetch("/api/tenants"),
+      fetch("/api/audit"),
+    ]);
     if (sessionRes.status === 401) {
       router.replace("/login");
       return;
     }
     const sessionData = await sessionRes.json();
     const tenantsData = await tenantsRes.json();
+    const auditData = auditRes.ok ? await auditRes.json() : { events: [] };
     setSessionName(sessionData.session?.name || "");
     setSendgridConfigured(Boolean(sessionData.sendgridConfigured));
     setTenants(tenantsData.tenants || []);
+    setAuditEvents(auditData.events || []);
     setLoading(false);
   }, [router]);
 
@@ -403,6 +448,60 @@ export default function TenantsPage() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+          <div className="border-b border-slate-200 px-5 py-4">
+            <h3 className="text-[15px] font-semibold text-slate-900">Platform audit</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Global Admin actions: create/enable tenants and invite administrators.
+            </p>
+          </div>
+          {loading ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">Loading audit…</div>
+          ) : auditEvents.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">No platform audit events yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      When
+                    </th>
+                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      Actor
+                    </th>
+                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      Action
+                    </th>
+                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      Tenant
+                    </th>
+                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      Detail
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditEvents.map((e) => (
+                    <tr key={e.id} className="border-b border-slate-100 last:border-b-0 align-top">
+                      <td className="px-5 py-3 whitespace-nowrap text-slate-600">{formatDateTime(e.createdAt)}</td>
+                      <td className="px-5 py-3">
+                        <p className="font-medium text-slate-900">{e.actorName}</p>
+                        <p className="text-xs text-slate-500">{e.actorEmail}</p>
+                      </td>
+                      <td className="px-5 py-3 text-slate-800">{e.action.replaceAll("_", " ")}</td>
+                      <td className="px-5 py-3 text-slate-600">{e.tenantName || "—"}</td>
+                      <td className="px-5 py-3 text-xs text-slate-600 max-w-xs truncate" title={e.after}>
+                        {e.entityType} · {auditAfterPreview(e.after)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

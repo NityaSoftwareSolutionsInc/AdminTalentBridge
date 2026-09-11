@@ -22,6 +22,7 @@ export async function POST(req: Request) {
       const result = await resendFirstAdminInvite({
         tenantId: body.tenantId,
         userId: body.userId,
+        actorId: session.platformAdminId,
         actorName: session.name,
       });
       return NextResponse.json(result);
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
       tenantId: String(body.tenantId || ""),
       email: String(body.email || ""),
       name: String(body.name || ""),
+      actorId: session.platformAdminId,
       actorName: session.name,
     });
     return NextResponse.json(result);

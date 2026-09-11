@@ -1,5 +1,6 @@
 import { TbRole } from "@prisma/client";
 import { prisma } from "./db";
+import { platformAudit } from "./audit";
 import { issueTenantAdminInvite } from "./invite";
 
 export async function listTenants() {
@@ -39,7 +40,7 @@ export async function listTenants() {
   }));
 }
 
-export async function createTenant(name: string) {
+export async function createTenant(name: string, actorId: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Tenant name is required");
 
@@ -51,14 +52,37 @@ export async function createTenant(name: string) {
     },
   });
 
+  await platformAudit({
+    actorId,
+    action: "create_tenant",
+    entityType: "tenant",
+    entityId: tenant.id,
+    tenantId: tenant.id,
+    after: { name: tenant.name, enabled: tenant.enabled },
+  });
+
   return { id: tenant.id, name: tenant.name, enabled: tenant.enabled };
 }
 
-export async function setTenantEnabled(tenantId: string, enabled: boolean) {
+export async function setTenantEnabled(tenantId: string, enabled: boolean, actorId: string) {
+  const existing = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!existing) throw new Error("Tenant not found");
+
   const tenant = await prisma.tenant.update({
     where: { id: tenantId },
     data: { enabled },
   });
+
+  await platformAudit({
+    actorId,
+    action: enabled ? "enable_tenant" : "disable_tenant",
+    entityType: "tenant",
+    entityId: tenant.id,
+    tenantId: tenant.id,
+    before: { name: existing.name, enabled: existing.enabled },
+    after: { name: tenant.name, enabled: tenant.enabled },
+  });
+
   return { id: tenant.id, name: tenant.name, enabled: tenant.enabled };
 }
 
@@ -66,6 +90,7 @@ export async function createFirstTenantAdmin(input: {
   tenantId: string;
   email: string;
   name: string;
+  actorId: string;
   actorName: string;
 }) {
   const email = input.email.trim().toLowerCase();
@@ -104,6 +129,23 @@ export async function createFirstTenantAdmin(input: {
     tenantName: tenant.name,
   });
 
+  await platformAudit({
+    actorId: input.actorId,
+    action: "invite_tenant_admin",
+    entityType: "user",
+    entityId: user.id,
+    tenantId: tenant.id,
+    after: {
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      inviteSent: invite.sent,
+      inviteStubbed: invite.stub,
+    },
+  });
+
   return {
     id: user.id,
     name: user.name,
@@ -115,6 +157,7 @@ export async function createFirstTenantAdmin(input: {
 export async function resendFirstAdminInvite(input: {
   tenantId: string;
   userId: string;
+  actorId: string;
   actorName: string;
 }) {
   const tenant = await prisma.tenant.findUnique({ where: { id: input.tenantId } });
@@ -134,6 +177,22 @@ export async function resendFirstAdminInvite(input: {
     tenantId: tenant.id,
     actorName: input.actorName,
     tenantName: tenant.name,
+  });
+
+  await platformAudit({
+    actorId: input.actorId,
+    action: "resend_tenant_admin_invite",
+    entityType: "user",
+    entityId: user.id,
+    tenantId: tenant.id,
+    after: {
+      userId: user.id,
+      email: user.email,
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      inviteSent: invite.sent,
+      inviteStubbed: invite.stub,
+    },
   });
 
   return { id: user.id, email: user.email, invite };

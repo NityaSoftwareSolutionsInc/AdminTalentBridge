@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
   const body = (await req.json()) as { name?: string };
   try {
-    const tenant = await createTenant(String(body.name || ""));
+    const tenant = await createTenant(String(body.name || ""), session.platformAdminId);
     return NextResponse.json({ tenant });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
@@ -31,7 +31,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "tenantId and enabled are required" }, { status: 400 });
   }
   try {
-    const tenant = await setTenantEnabled(body.tenantId, body.enabled);
+    const tenant = await setTenantEnabled(body.tenantId, body.enabled, session.platformAdminId);
     return NextResponse.json({ tenant });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });

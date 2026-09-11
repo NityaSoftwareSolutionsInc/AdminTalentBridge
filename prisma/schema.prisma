@@ -97,3 +97,22 @@ model Membership {
   @@map("memberships")
   @@schema("talentbridge")
 }
+
+/// Global Admin actions (Admin-Talent-Bridge). Separate from tenant AuditEvent.
+model PlatformAuditEvent {
+  id         String   @id @default(uuid())
+  actorId    String   @map("actor_id")
+  tenantId   String?  @map("tenant_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  before     String   @default("")
+  after      String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("platform_audit_events")
+  @@schema("talentbridge")
+}
