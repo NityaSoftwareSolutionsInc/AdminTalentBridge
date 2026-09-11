@@ -34,40 +34,43 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-full flex items-center justify-center p-6 bg-gradient-to-br from-slate-100 via-teal-50 to-slate-200">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wider text-teal-700">Admin TalentBridge</p>
-        <h1 className="mt-2 text-2xl font-semibold text-slate-900">Global Admin</h1>
-        <p className="mt-1 text-sm text-slate-600">Create tenants and invite the first Administrator.</p>
+    <main className="min-h-screen bg-[#0b1f3a] text-white flex items-center justify-center p-8">
+      <div className="w-full max-w-xl rounded-2xl bg-white text-slate-900 p-8 shadow-2xl">
+        <p className="text-sm uppercase tracking-wide text-blue-700 font-semibold">TalentBridge Admin</p>
+        <h1 className="mt-1 text-2xl font-semibold">Global Admin sign in</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Platform credentials only. Create tenants and invite the first Administrator for each staffing firm.
+        </p>
+
+        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
 
         <form onSubmit={onSubmit} className="mt-6 space-y-3">
-          <label className="block text-sm">
-            <span className="text-slate-700">Email</span>
+          <label className="block">
+            <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">Email</span>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-600"
               type="email"
+              required
+              autoComplete="username"
+              className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              autoComplete="username"
-              required
             />
           </label>
-          <label className="block text-sm">
-            <span className="text-slate-700">Password</span>
+          <label className="block">
+            <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-1">Password</span>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-600"
               type="password"
+              required
+              autoComplete="current-password"
+              className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
             />
           </label>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-lg bg-teal-700 px-3 py-2.5 text-sm font-medium text-white hover:bg-teal-600 disabled:opacity-60"
+            className="w-full h-10 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 cursor-pointer"
           >
             {busy ? "Signing in…" : "Sign in"}
           </button>

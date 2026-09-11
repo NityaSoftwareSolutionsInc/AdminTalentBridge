@@ -2,10 +2,11 @@
 
 @theme {
   --font-sans: var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif;
-  --color-canvas: #f1f5f9;
-  --color-ink: #0f172a;
-  --color-accent: #0f766e;
-  --color-accent-hover: #0d9488;
+  --color-canvas: #f3f5f8;
+  --color-sidebar: #0f172a;
+  --color-sidebar-muted: #94a3b8;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
 }
 
 html,
@@ -15,7 +16,7 @@ body {
 
 body {
   margin: 0;
-  color: var(--color-ink);
+  color: #0f172a;
   background: var(--color-canvas);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -27,9 +28,27 @@ body {
   box-sizing: border-box;
 }
 
+::selection {
+  background: #dbeafe;
+}
+
 input,
 select,
 textarea,
 button {
   font-family: inherit;
+}
+
+button:not(:disabled),
+a[href],
+[role="button"],
+summary,
+select,
+label {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
 }
