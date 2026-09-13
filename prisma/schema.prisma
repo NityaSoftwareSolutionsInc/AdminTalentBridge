@@ -19,45 +19,64 @@ enum TbRole {
 }
 
 model PlatformAdmin {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  name         String
-  passwordHash String   @map("password_hash")
-  enabled      Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                     String    @id @default(uuid())
+  email                  String    @unique
+  name                   String
+  passwordHash           String    @map("password_hash")
+  enabled                Boolean   @default(true)
+  createdAt              DateTime  @default(now()) @map("created_at")
+  passwordResetTokenHash String?   @map("password_reset_token_hash")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+  mustChangePassword     Boolean   @default(false) @map("must_change_password")
+  passwordChangedAt      DateTime? @map("password_changed_at")
+  lastLoginAt            DateTime? @map("last_login_at")
+  failedLoginCount       Int       @default(0) @map("failed_login_count")
+  lockedUntil            DateTime? @map("locked_until")
+  inviteSentAt           DateTime? @map("invite_sent_at")
 
   @@map("platform_admins")
   @@schema("talentbridge")
 }
 
 model Tenant {
-  id         String   @id @default(uuid())
-  name       String
-  enabled    Boolean  @default(true)
-  /// Platform entitlement: JobsNProfiles is available in this tenant. Set by Global Admin.
-  jnpAllowed Boolean  @default(false) @map("jnp_allowed")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  name               String
+  enabled            Boolean  @default(true)
+  jnpAllowed         Boolean  @default(false) @map("jnp_allowed")
+  outlookAllowed     Boolean  @default(true) @map("outlook_allowed")
+  viotalkAllowed     Boolean  @default(true) @map("viotalk_allowed")
+  maintenanceMode    Boolean  @default(false) @map("maintenance_mode")
+  maintenanceMessage String   @default("") @map("maintenance_message")
+  legalName          String   @default("") @map("legal_name")
+  billingContact     String   @default("") @map("billing_contact")
+  region             String   @default("")
+  notes              String   @default("")
+  accountOwner       String   @default("") @map("account_owner")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   users       User[]
   memberships Membership[]
   settings    TenantSettings?
+  mailboxMaps MailboxMap[]
+  auditEvents AuditEvent[]
 
   @@map("tenants")
   @@schema("talentbridge")
 }
 
 model TenantSettings {
-  id                       String   @id @default(uuid())
-  tenantId                 String   @unique @map("tenant_id")
-  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  relationshipStages       String[] @default(["Lead", "Suspect", "Prospect", "Customer"]) @map("relationship_stages")
-  submissionStages         String[] @default(["Submitted", "Client Review", "Interview", "Rejected", "Offer", "Placement"]) @map("submission_stages")
-  slaRequirementNoSubDays  Int      @default(3) @map("sla_requirement_no_sub_days")
+  id                        String  @id @default(uuid())
+  tenantId                  String  @unique @map("tenant_id")
+  tenant                    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  relationshipStages        String[] @default(["Lead", "Suspect", "Prospect", "Customer"]) @map("relationship_stages")
+  submissionStages          String[] @default(["Submitted", "Client Review", "Interview", "Rejected", "Offer", "Placement"]) @map("submission_stages")
+  slaRequirementNoSubDays   Int     @default(3) @map("sla_requirement_no_sub_days")
   slaSubmissionFeedbackDays Int     @default(5) @map("sla_submission_feedback_days")
-  slaInterviewFeedbackDays Int      @default(1) @map("sla_interview_feedback_days")
-  slaClientLastContactDays Int      @default(21) @map("sla_client_last_contact_days")
-  slaMsaExpiryDays         Int      @default(30) @map("sla_msa_expiry_days")
-  recordingPlaybackAllowed Boolean  @default(false) @map("recording_playback_allowed")
+  slaInterviewFeedbackDays  Int     @default(1) @map("sla_interview_feedback_days")
+  slaClientLastOutreachDays Int     @default(21) @map("sla_client_last_outreach_days")
+  slaMsaExpiryDays          Int     @default(30) @map("sla_msa_expiry_days")
+  recordingPlaybackAllowed  Boolean @default(false) @map("recording_playback_allowed")
+  jnpAccountUserId          String  @default("") @map("jnp_account_user_id")
 
   @@map("tenant_settings")
   @@schema("talentbridge")
@@ -72,6 +91,7 @@ model User {
   title                  String    @default("")
   enabled                Boolean   @default(true)
   createdAt              DateTime  @default(now()) @map("created_at")
+  lastLoginAt            DateTime? @map("last_login_at")
   passwordHash           String?   @map("password_hash")
   passwordSetAt          DateTime? @map("password_set_at")
   inviteSentAt           DateTime? @map("invite_sent_at")
@@ -80,6 +100,7 @@ model User {
   passwordResetKind      String?   @map("password_reset_kind")
 
   memberships Membership[]
+  mailboxMap  MailboxMap?
 
   @@unique([tenantId, email])
   @@map("users")
@@ -87,11 +108,11 @@ model User {
 }
 
 model Membership {
-  id          String  @id @default(uuid())
-  tenantId    String  @map("tenant_id")
-  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId      String  @map("user_id")
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role        TbRole
   permissions String[] @default([])
 
@@ -100,7 +121,36 @@ model Membership {
   @@schema("talentbridge")
 }
 
-/// Global Admin actions (Admin-Talent-Bridge). Separate from tenant AuditEvent.
+model MailboxMap {
+  id        String @id @default(uuid())
+  tenantId  String @map("tenant_id")
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String @unique @map("user_id")
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailbox   String
+
+  @@map("mailbox_maps")
+  @@schema("talentbridge")
+}
+
+/// Tenant-scoped login events (used for usage/health).
+model AuditEvent {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actorId    String   @map("actor_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  before     String   @default("")
+  after      String   @default("")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("audit_events")
+  @@schema("talentbridge")
+}
+
 model PlatformAuditEvent {
   id         String   @id @default(uuid())
   actorId    String   @map("actor_id")
@@ -116,5 +166,42 @@ model PlatformAuditEvent {
   @@index([tenantId, createdAt])
   @@index([actorId, createdAt])
   @@map("platform_audit_events")
+  @@schema("talentbridge")
+}
+
+model PlatformEmailLog {
+  id            String   @id @default(uuid())
+  kind          String
+  toEmail       String   @map("to_email")
+  subject       String
+  status        String
+  providerId    String   @default("") @map("provider_id")
+  error         String   @default("")
+  tenantId      String?  @map("tenant_id")
+  actorId       String?  @map("actor_id")
+  relatedUserId String?  @map("related_user_id")
+  previewUrl    String   @default("") @map("preview_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([toEmail, createdAt])
+  @@map("platform_email_logs")
+  @@schema("talentbridge")
+}
+
+model PlatformLoginEvent {
+  id              String   @id @default(uuid())
+  platformAdminId String?  @map("platform_admin_id")
+  email           String
+  success         Boolean
+  reason          String   @default("")
+  ip              String   @default("")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([email, createdAt])
+  @@index([platformAdminId, createdAt])
+  @@map("platform_login_events")
   @@schema("talentbridge")
 }

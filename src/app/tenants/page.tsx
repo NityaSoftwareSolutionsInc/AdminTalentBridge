@@ -1,7 +1,29 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Plus, Search, X } from "lucide-react";
+import { AdminShell, type AdminNavKey } from "@/components/AdminShell";
+import { DashboardView } from "@/components/DashboardView";
+import { EmailLogsView } from "@/components/EmailLogsView";
+import { PlatformAdminsView } from "@/components/PlatformAdminsView";
+import { TenantDetailDrawer } from "@/components/TenantDetailDrawer";
+import {
+  Badge,
+  Banner,
+  Button,
+  DataTable,
+  EmptyState,
+  Field,
+  FilterChip,
+  Input,
+  Panel,
+  Td,
+  Th,
+  Toolbar,
+  Workspace,
+  WorkspaceBody,
+} from "@/components/ui";
 
 type AdminRow = {
   id: string;
@@ -19,6 +41,18 @@ type TenantRow = {
   createdAt: string;
   userCount: number;
   admins: AdminRow[];
+  outlookAllowed?: boolean;
+  viotalkAllowed?: boolean;
+  maintenanceMode?: boolean;
+  mailboxMappedCount?: number;
+  activeUsers7d?: number;
+  activeUsers30d?: number;
+  pendingInviteCount?: number;
+  invitePendingAgingDays?: number | null;
+  lastUserLoginAt?: string | null;
+  legalName?: string;
+  region?: string;
+  accountOwner?: string;
 };
 
 type InviteResult = {
@@ -42,6 +76,8 @@ type AuditRow = {
   after: string;
   createdAt: string;
 };
+
+type OrgFilter = "all" | "enabled" | "disabled" | "jnp" | "pending";
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -74,33 +110,12 @@ function auditAfterPreview(after: string) {
   }
 }
 
-function cn(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
-}
-
-function Badge({
-  children,
-  tone = "slate",
-}: {
-  children: React.ReactNode;
-  tone?: "slate" | "green" | "amber" | "red";
-}) {
-  const map = {
-    slate: "bg-slate-100 text-slate-700 ring-slate-200",
-    green: "bg-emerald-50 text-emerald-800 ring-emerald-100",
-    amber: "bg-amber-50 text-amber-800 ring-amber-100",
-    red: "bg-red-50 text-red-700 ring-red-100",
-  };
-  return (
-    <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset", map[tone])}>
-      {children}
-    </span>
-  );
-}
-
 export default function TenantsPage() {
   const router = useRouter();
+  const [nav, setNav] = useState<AdminNavKey>("dashboard");
   const [sessionName, setSessionName] = useState("");
+  const [sessionPlatformAdminId, setSessionPlatformAdminId] = useState("");
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [sendgridConfigured, setSendgridConfigured] = useState(false);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditRow[]>([]);
@@ -108,43 +123,96 @@ export default function TenantsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<OrgFilter>("all");
+  const [auditQ, setAuditQ] = useState("");
+  const [auditAction, setAuditAction] = useState("");
+  const [auditFrom, setAuditFrom] = useState("");
+  const [auditTo, setAuditTo] = useState("");
   const [newName, setNewName] = useState("");
   const [newJnpAllowed, setNewJnpAllowed] = useState(false);
+  const [newAdminName, setNewAdminName] = useState("");
+  const [newAdminEmail, setNewAdminEmail] = useState("");
   const [adminForms, setAdminForms] = useState<Record<string, { name: string; email: string }>>({});
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const auditFiltersRef = useRef({ q: "", action: "", from: "", to: "" });
+  auditFiltersRef.current = { q: auditQ, action: auditAction, from: auditFrom, to: auditTo };
+
+  const loadAudit = useCallback(async (overrides?: { q?: string; action?: string; from?: string; to?: string }) => {
+    const params = new URLSearchParams();
+    const filters = { ...auditFiltersRef.current, ...overrides };
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.action.trim()) params.set("action", filters.action.trim());
+    if (filters.from) params.set("from", filters.from);
+    if (filters.to) params.set("to", filters.to);
+    const qs = params.toString();
+    const auditRes = await fetch(`/api/audit${qs ? `?${qs}` : ""}`);
+    const auditData = auditRes.ok ? await auditRes.json() : { events: [] };
+    setAuditEvents(auditData.events || []);
+  }, []);
 
   const load = useCallback(async () => {
-    const [sessionRes, tenantsRes, auditRes] = await Promise.all([
-      fetch("/api/session"),
-      fetch("/api/tenants"),
-      fetch("/api/audit"),
-    ]);
+    const [sessionRes, tenantsRes] = await Promise.all([fetch("/api/session"), fetch("/api/tenants")]);
     if (sessionRes.status === 401) {
       router.replace("/login");
       return;
     }
     const sessionData = await sessionRes.json();
     const tenantsData = await tenantsRes.json();
-    const auditData = auditRes.ok ? await auditRes.json() : { events: [] };
     setSessionName(sessionData.session?.name || "");
+    setSessionPlatformAdminId(sessionData.session?.platformAdminId || "");
+    setMustChangePassword(Boolean(sessionData.session?.mustChangePassword));
     setSendgridConfigured(Boolean(sessionData.sendgridConfigured));
     setTenants(tenantsData.tenants || []);
-    setAuditEvents(auditData.events || []);
+    await loadAudit();
     setLoading(false);
-  }, [router]);
+  }, [router, loadAudit]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!showCreate) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setShowCreate(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showCreate]);
+
+  const filteredTenants = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tenants.filter((t) => {
+      if (filter === "enabled" && !t.enabled) return false;
+      if (filter === "disabled" && t.enabled) return false;
+      if (filter === "jnp" && !t.jnpAllowed) return false;
+      if (filter === "pending") {
+        const pending = t.admins.some((a) => !a.passwordSet) || t.admins.length === 0;
+        if (!pending) return false;
+      }
+      if (!q) return true;
+      const adminHay = t.admins.map((a) => `${a.name} ${a.email}`).join(" ");
+      return `${t.name} ${adminHay}`.toLowerCase().includes(q);
+    });
+  }, [tenants, query, filter]);
+
   function formatInvite(invite?: InviteResult | null) {
     if (!invite) return "";
-    if (invite.sent) return `Invite sent to ${invite.email || "admin"}.`;
-    if (invite.stub) {
-      return `Invite stubbed (configure SendGrid). Preview link is in the server log${
-        invite.previewUrl ? `: ${invite.previewUrl}` : ""
-      }.`;
+    if (invite.sent) {
+      return `Activation email sent to ${invite.email || "admin"}. They must open that email to activate before signing in.`;
     }
-    return "Invite was not sent.";
+    if (invite.stub) {
+      return `Activation email stubbed (configure SendGrid). Preview link is in the server log${
+        invite.previewUrl ? `: ${invite.previewUrl}` : ""
+      }. They must use that link to activate.`;
+    }
+    return "Activation email was not sent.";
   }
 
   async function createTenant(e: FormEvent) {
@@ -156,7 +224,12 @@ export default function TenantsPage() {
       const res = await fetch("/api/tenants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName, jnpAllowed: newJnpAllowed }),
+        body: JSON.stringify({
+          name: newName,
+          jnpAllowed: newJnpAllowed,
+          adminName: newAdminName,
+          adminEmail: newAdminEmail,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -165,10 +238,13 @@ export default function TenantsPage() {
       }
       setNewName("");
       setNewJnpAllowed(false);
+      setNewAdminName("");
+      setNewAdminEmail("");
+      setShowCreate(false);
       setNotice(
-        `Created tenant “${data.tenant.name}”. JobsNProfiles is ${
+        `Created tenant “${data.tenant.name}”. ${formatInvite(data.tenant?.adminInvite?.invite)} JobsNProfiles is ${
           data.tenant.jnpAllowed ? "allowed" : "not allowed"
-        }. Invite the first Administrator below.`,
+        }.`,
       );
       await load();
     } finally {
@@ -268,311 +344,548 @@ export default function TenantsPage() {
     }
   }
 
+  async function changePassword(e: FormEvent) {
+    e.preventDefault();
+    setPasswordBusy(true);
+    setPasswordError(null);
+    try {
+      const res = await fetch("/api/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, password: newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordError(data.error || "Could not change password");
+        return;
+      }
+      setCurrentPassword("");
+      setNewPassword("");
+      setMustChangePassword(false);
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
+  const filters: Array<{ key: OrgFilter; label: string }> = [
+    { key: "all", label: "All" },
+    { key: "enabled", label: "Enabled" },
+    { key: "disabled", label: "Disabled" },
+    { key: "jnp", label: "JNP allowed" },
+    { key: "pending", label: "Pending invite" },
+  ];
+
   return (
-    <div className="min-h-full flex flex-col">
-      <header className="border-b border-slate-200 bg-[var(--color-sidebar)] text-white">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-6">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-300">TalentBridge Admin</p>
-            <h1 className="truncate text-[15px] font-semibold">Tenant management</h1>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Badge tone={sendgridConfigured ? "green" : "amber"}>
-              {sendgridConfigured ? "SendGrid ready" : "SendGrid stub"}
-            </Badge>
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium text-white">{sessionName || "—"}</p>
-              <p className="text-[11px] text-slate-400">Global Admin</p>
-            </div>
-            <a
-              href="/api/logout"
-              className="rounded-md px-2.5 py-1.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+    <>
+      <AdminShell
+        active={nav}
+        onNavigate={(key) => {
+          setNav(key);
+          setError(null);
+          setNotice(null);
+          if (key !== "organizations") setShowCreate(false);
+        }}
+        sessionName={sessionName}
+        sendgridConfigured={sendgridConfigured}
+        primaryAction={
+          nav === "organizations" ? (
+            <Button
+              type="button"
+              onClick={() => {
+                setShowCreate(true);
+                setError(null);
+              }}
             >
-              Sign out
-            </a>
-          </div>
-        </div>
-      </header>
+              <Plus className="h-4 w-4" />
+              Create tenant
+            </Button>
+          ) : null
+        }
+      >
+        {nav === "dashboard" ? (
+          <DashboardView
+            tenants={tenants}
+            auditEvents={auditEvents}
+            loading={loading}
+            onOpenOrganizations={() => setNav("organizations")}
+          />
+        ) : nav === "platform-admins" ? (
+          <PlatformAdminsView selfId={sessionPlatformAdminId} />
+        ) : nav === "email-logs" ? (
+          <EmailLogsView />
+        ) : (
+          <Workspace>
+            {(error || notice) && !showCreate ? (
+              <div className="space-y-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 sm:px-5">
+                {error ? <Banner tone="error">{error}</Banner> : null}
+                {notice ? <Banner tone="success">{notice}</Banner> : null}
+              </div>
+            ) : null}
 
-      <main className="mx-auto w-full max-w-5xl flex-1 space-y-5 px-6 py-7">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Platform</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Organizations</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Create tenants, decide JobsNProfiles access, enable or disable the org, and invite the first Administrator.
-            </p>
-          </div>
-          <p className="text-sm text-slate-500">
-            {loading ? "Loading…" : `${tenants.length} tenant${tenants.length === 1 ? "" : "s"}`}
-          </p>
-        </div>
+            {nav === "organizations" ? (
+              <>
+                <Toolbar>
+                  <div className="relative max-w-md min-w-[220px] flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+                    <Input
+                      className="pl-8"
+                      placeholder="Search tenants or admins…"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      aria-label="Search organizations"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {filters.map((f) => (
+                      <FilterChip key={f.key} active={filter === f.key} onClick={() => setFilter(f.key)}>
+                        {f.label}
+                      </FilterChip>
+                    ))}
+                  </div>
+                  <p className="ml-auto text-[12px] text-[var(--color-text-muted)]">
+                    {loading
+                      ? "Loading…"
+                      : `${filteredTenants.length} of ${tenants.length} tenant${tenants.length === 1 ? "" : "s"}`}
+                  </p>
+                </Toolbar>
 
-        {error ? (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-        ) : null}
-        {notice ? (
-          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 break-all">
-            {notice}
-          </p>
-        ) : null}
-
-        <section className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-          <h3 className="text-[15px] font-semibold text-slate-900">Create tenant</h3>
-          <p className="mt-1 text-sm text-slate-600">
-            Adds the org root and default TalentBridge settings. JobsNProfiles is off unless you allow it here.
-          </p>
-          <form
-            onSubmit={createTenant}
-            className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
-          >
-            <label className="block min-w-0">
-              <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Staffing firm name
-              </span>
-              <input
-                className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
-                placeholder="e.g. Northstar Staffing"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                required
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={busy || !newName.trim()}
-              className="h-10 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40 sm:min-w-[120px]"
-            >
-              Create
-            </button>
-            <label className="flex items-start gap-2 sm:col-span-2">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                checked={newJnpAllowed}
-                onChange={(e) => setNewJnpAllowed(e.target.checked)}
-              />
-              <span className="text-sm text-slate-700">
-                Allow JobsNProfiles
-                <span className="mt-0.5 block text-xs text-slate-500">
-                  Tenant administrators can map recruiters and pull candidates only if this is on.
-                </span>
-              </span>
-            </label>
-          </form>
-        </section>
-
-        <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-          {loading ? (
-            <div className="px-6 py-12 text-center text-sm text-slate-500">Loading tenants…</div>
-          ) : tenants.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <p className="text-sm font-medium text-slate-800">No tenants yet</p>
-              <p className="mt-1 text-sm text-slate-500">Create the first staffing firm to get started.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-left">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Tenant
-                    </th>
-                    <th className="w-20 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Users
-                    </th>
-                    <th className="w-28 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Status
-                    </th>
-                    <th className="w-28 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      JNP
-                    </th>
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Administrator
-                    </th>
-                    <th className="w-44 px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenants.map((tenant) => {
-                    const form = adminForms[tenant.id] || { name: "", email: "" };
-                    const firstAdmin = tenant.admins[0];
-                    return (
-                      <tr key={tenant.id} className="border-b border-slate-100 last:border-b-0 align-top">
-                        <td className="px-5 py-4">
-                          <p className="text-[13px] font-medium text-slate-900">{tenant.name}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">Created {formatDate(tenant.createdAt)}</p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className="text-sm tabular-nums text-slate-800">{tenant.userCount}</span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <Badge tone={tenant.enabled ? "green" : "slate"}>
-                            {tenant.enabled ? "Enabled" : "Disabled"}
-                          </Badge>
-                        </td>
-                        <td className="px-5 py-4">
-                          <Badge tone={tenant.jnpAllowed ? "green" : "slate"}>
-                            {tenant.jnpAllowed ? "Allowed" : "Not allowed"}
-                          </Badge>
-                        </td>
-                        <td className="px-5 py-4">
-                          {firstAdmin ? (
-                            <div className="flex flex-wrap items-end justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-[13px] font-medium text-slate-900">{firstAdmin.name}</p>
-                                <p className="truncate text-xs text-slate-500">{firstAdmin.email}</p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {firstAdmin.passwordSet
-                                    ? "Password set"
-                                    : firstAdmin.inviteSentAt
-                                      ? `Invited ${formatDate(firstAdmin.inviteSentAt)}`
-                                      : "Not invited"}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void resendInvite(tenant.id, firstAdmin.id)}
-                                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 hover:border-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                              >
-                                Resend invite
-                              </button>
-                            </div>
-                          ) : (
-                            <div>
-                              <p className="mb-2 text-sm text-slate-500">No administrator yet</p>
-                              <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-                                <label className="block min-w-0">
-                                  <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                                    Name
-                                  </span>
-                                  <input
-                                    className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
-                                    placeholder="Full name"
-                                    value={form.name}
-                                    onChange={(e) =>
-                                      setAdminForms((prev) => ({
-                                        ...prev,
-                                        [tenant.id]: { ...form, name: e.target.value },
-                                      }))
-                                    }
-                                  />
-                                </label>
-                                <label className="block min-w-0">
-                                  <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                                    Email
-                                  </span>
-                                  <input
-                                    className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
-                                    placeholder="admin@firm.com"
-                                    type="email"
-                                    value={form.email}
-                                    onChange={(e) =>
-                                      setAdminForms((prev) => ({
-                                        ...prev,
-                                        [tenant.id]: { ...form, email: e.target.value },
-                                      }))
-                                    }
-                                  />
-                                </label>
+                <WorkspaceBody>
+                  {loading ? (
+                    <div className="px-6 py-16 text-center text-[13px] text-[var(--color-text-muted)]">
+                      Loading tenants…
+                    </div>
+                  ) : filteredTenants.length === 0 ? (
+                    <EmptyState
+                      title={tenants.length === 0 ? "No tenants yet" : "No matches"}
+                      description={
+                        tenants.length === 0
+                          ? "Create the first staffing firm to get started."
+                          : "Try a different search or filter."
+                      }
+                      action={
+                        tenants.length === 0 ? (
+                          <Button type="button" onClick={() => setShowCreate(true)}>
+                            <Plus className="h-4 w-4" />
+                            Create tenant
+                          </Button>
+                        ) : null
+                      }
+                    />
+                  ) : (
+                    <DataTable minWidth="1100px">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
+                          <Th>Tenant</Th>
+                          <Th className="w-24">Users</Th>
+                          <Th className="w-28">Status</Th>
+                          <Th className="w-32">JNP</Th>
+                          <Th>Administrator</Th>
+                          <Th className="w-48" align="right">
+                            Actions
+                          </Th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-[var(--color-surface)]">
+                        {filteredTenants.map((tenant) => {
+                          const form = adminForms[tenant.id] || { name: "", email: "" };
+                          const firstAdmin = tenant.admins[0];
+                          const active7d = tenant.activeUsers7d ?? 0;
+                          const mailboxes = tenant.mailboxMappedCount ?? 0;
+                          const pendingAging = tenant.invitePendingAgingDays;
+                          return (
+                            <tr
+                              key={tenant.id}
+                              className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-muted)]/70"
+                            >
+                              <Td>
                                 <button
                                   type="button"
-                                  disabled={busy || !form.name.trim() || !form.email.trim()}
-                                  onClick={() => void createAdmin(tenant.id)}
-                                  className="h-10 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                                  className="text-left font-semibold text-[var(--color-accent)] hover:underline"
+                                  onClick={() => setSelectedTenantId(tenant.id)}
                                 >
-                                  Invite
+                                  {tenant.name}
                                 </button>
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <div className="flex flex-col items-end gap-2">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void toggleJnpAllowed(tenant)}
-                              className="h-9 min-w-[110px] rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 hover:border-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  {tenant.maintenanceMode ? <Badge tone="amber">Maintenance</Badge> : null}
+                                </div>
+                                <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">
+                                  Active 7d {active7d} · Mailboxes {mailboxes}
+                                  {pendingAging != null && pendingAging > 0
+                                    ? ` · Pending aging ${pendingAging}d`
+                                    : ""}
+                                </p>
+                                <p className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
+                                  Created {formatDate(tenant.createdAt)}
+                                </p>
+                              </Td>
+                              <Td>
+                                <span className="font-medium tabular-nums text-[var(--color-text)]">
+                                  {tenant.userCount}
+                                </span>
+                              </Td>
+                              <Td>
+                                <Badge tone={tenant.enabled ? "green" : "slate"}>
+                                  {tenant.enabled ? "Enabled" : "Disabled"}
+                                </Badge>
+                              </Td>
+                              <Td>
+                                <Badge tone={tenant.jnpAllowed ? "green" : "slate"}>
+                                  {tenant.jnpAllowed ? "Allowed" : "Not allowed"}
+                                </Badge>
+                              </Td>
+                              <Td>
+                                {firstAdmin ? (
+                                  <div className="flex flex-wrap items-end justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-[var(--color-text)]">{firstAdmin.name}</p>
+                                      <p className="truncate text-[12px] text-[var(--color-text-muted)]">
+                                        {firstAdmin.email}
+                                      </p>
+                                      <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">
+                                        {firstAdmin.passwordSet
+                                          ? "Activated"
+                                          : firstAdmin.inviteSentAt
+                                            ? `Activation pending · emailed ${formatDate(firstAdmin.inviteSentAt)}`
+                                            : "Not activated"}
+                                      </p>
+                                    </div>
+                                    {!firstAdmin.passwordSet ? (
+                                      <Button
+                                        type="button"
+                                        variant="secondary"
+                                        disabled={busy}
+                                        onClick={() => void resendInvite(tenant.id, firstAdmin.id)}
+                                      >
+                                        Resend activation
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <p className="mb-2 text-[13px] text-[var(--color-text-muted)]">
+                                      No administrator yet
+                                    </p>
+                                    <div className="grid grid-cols-1 gap-2 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
+                                      <Field label="Name">
+                                        <Input
+                                          placeholder="Full name"
+                                          value={form.name}
+                                          onChange={(e) =>
+                                            setAdminForms((prev) => ({
+                                              ...prev,
+                                              [tenant.id]: { ...form, name: e.target.value },
+                                            }))
+                                          }
+                                        />
+                                      </Field>
+                                      <Field label="Email">
+                                        <Input
+                                          placeholder="admin@firm.com"
+                                          type="email"
+                                          value={form.email}
+                                          onChange={(e) =>
+                                            setAdminForms((prev) => ({
+                                              ...prev,
+                                              [tenant.id]: { ...form, email: e.target.value },
+                                            }))
+                                          }
+                                        />
+                                      </Field>
+                                      <Button
+                                        type="button"
+                                        disabled={busy || !form.name.trim() || !form.email.trim()}
+                                        onClick={() => void createAdmin(tenant.id)}
+                                      >
+                                        Invite
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </Td>
+                              <Td align="right">
+                                <div className="flex flex-col items-end gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    className="min-w-[118px]"
+                                    disabled={busy}
+                                    onClick={() => void toggleJnpAllowed(tenant)}
+                                  >
+                                    {tenant.jnpAllowed ? "Revoke JNP" : "Allow JNP"}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    className="min-w-[118px]"
+                                    disabled={busy}
+                                    onClick={() => void toggleEnabled(tenant)}
+                                  >
+                                    {tenant.enabled ? "Disable" : "Enable"}
+                                  </Button>
+                                </div>
+                              </Td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </DataTable>
+                  )}
+                </WorkspaceBody>
+              </>
+            ) : (
+              <>
+                <Toolbar>
+                  <div className="relative min-w-[160px] max-w-xs flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+                    <Input
+                      className="pl-8"
+                      placeholder="Search audit…"
+                      value={auditQ}
+                      onChange={(e) => setAuditQ(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void loadAudit();
+                      }}
+                      aria-label="Search audit"
+                    />
+                  </div>
+                  <Field label="Action" className="min-w-[140px]">
+                    <Input
+                      placeholder="e.g. tenant.create"
+                      value={auditAction}
+                      onChange={(e) => setAuditAction(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void loadAudit();
+                      }}
+                      aria-label="Filter by action"
+                    />
+                  </Field>
+                  <Field label="From" className="w-[150px]">
+                    <Input
+                      type="date"
+                      value={auditFrom}
+                      onChange={(e) => {
+                        setAuditFrom(e.target.value);
+                        void loadAudit({ from: e.target.value });
+                      }}
+                      aria-label="From date"
+                    />
+                  </Field>
+                  <Field label="To" className="w-[150px]">
+                    <Input
+                      type="date"
+                      value={auditTo}
+                      onChange={(e) => {
+                        setAuditTo(e.target.value);
+                        void loadAudit({ to: e.target.value });
+                      }}
+                      aria-label="To date"
+                    />
+                  </Field>
+                  <Button type="button" variant="secondary" onClick={() => void loadAudit()}>
+                    Apply
+                  </Button>
+                  <p className="ml-auto text-[12px] text-[var(--color-text-muted)]">
+                    {loading
+                      ? "Loading…"
+                      : `${auditEvents.length} event${auditEvents.length === 1 ? "" : "s"}`}
+                  </p>
+                </Toolbar>
+                <WorkspaceBody>
+                  {loading ? (
+                    <div className="px-6 py-16 text-center text-[13px] text-[var(--color-text-muted)]">
+                      Loading audit…
+                    </div>
+                  ) : auditEvents.length === 0 ? (
+                    <EmptyState title="No platform audit events yet" />
+                  ) : (
+                    <DataTable minWidth="900px">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
+                          <Th>When</Th>
+                          <Th>Actor</Th>
+                          <Th>Action</Th>
+                          <Th>Tenant</Th>
+                          <Th>Detail</Th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-[var(--color-surface)]">
+                        {auditEvents.map((e) => (
+                          <tr
+                            key={e.id}
+                            className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-muted)]/70"
+                          >
+                            <Td className="whitespace-nowrap text-[var(--color-text-muted)]">
+                              {formatDateTime(e.createdAt)}
+                            </Td>
+                            <Td>
+                              <p className="font-medium text-[var(--color-text)]">{e.actorName}</p>
+                              <p className="text-[12px] text-[var(--color-text-muted)]">{e.actorEmail}</p>
+                            </Td>
+                            <Td>{e.action.replaceAll("_", " ")}</Td>
+                            <Td className="text-[var(--color-text-muted)]">{e.tenantName || "—"}</Td>
+                            <Td
+                              className="max-w-xs truncate text-[12px] text-[var(--color-text-muted)]"
+                              title={e.after}
                             >
-                              {tenant.jnpAllowed ? "Revoke JNP" : "Allow JNP"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void toggleEnabled(tenant)}
-                              className="h-9 min-w-[110px] rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 hover:border-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                            >
-                              {tenant.enabled ? "Disable" : "Enable"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+                              {e.entityType} · {auditAfterPreview(e.after)}
+                            </Td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </DataTable>
+                  )}
+                </WorkspaceBody>
+              </>
+            )}
+          </Workspace>
+        )}
+      </AdminShell>
 
-        <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-          <div className="border-b border-slate-200 px-5 py-4">
-            <h3 className="text-[15px] font-semibold text-slate-900">Platform audit</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Global Admin actions: create/enable tenants and invite administrators.
-            </p>
-          </div>
-          {loading ? (
-            <div className="px-6 py-10 text-center text-sm text-slate-500">Loading audit…</div>
-          ) : auditEvents.length === 0 ? (
-            <div className="px-6 py-10 text-center text-sm text-slate-500">No platform audit events yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50">
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      When
-                    </th>
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Actor
-                    </th>
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Action
-                    </th>
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Tenant
-                    </th>
-                    <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Detail
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditEvents.map((e) => (
-                    <tr key={e.id} className="border-b border-slate-100 last:border-b-0 align-top">
-                      <td className="px-5 py-3 whitespace-nowrap text-slate-600">{formatDateTime(e.createdAt)}</td>
-                      <td className="px-5 py-3">
-                        <p className="font-medium text-slate-900">{e.actorName}</p>
-                        <p className="text-xs text-slate-500">{e.actorEmail}</p>
-                      </td>
-                      <td className="px-5 py-3 text-slate-800">{e.action.replaceAll("_", " ")}</td>
-                      <td className="px-5 py-3 text-slate-600">{e.tenantName || "—"}</td>
-                      <td className="px-5 py-3 text-xs text-slate-600 max-w-xs truncate" title={e.after}>
-                        {e.entityType} · {auditAfterPreview(e.after)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {selectedTenantId ? (
+        <TenantDetailDrawer
+          tenantId={selectedTenantId}
+          onClose={() => setSelectedTenantId(null)}
+          onChanged={() => void load()}
+        />
+      ) : null}
+
+      {mustChangePassword ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/55" />
+          <Panel className="relative z-10 w-full max-w-md shadow-[var(--shadow-md)]">
+            <div className="border-b border-[var(--color-border)] px-5 py-4">
+              <h2 className="text-[15px] font-semibold text-[var(--color-text)]">Change your password</h2>
+              <p className="mt-1 text-[13px] text-[var(--color-text-muted)]">
+                You must set a new password before continuing.
+              </p>
             </div>
-          )}
-        </section>
-      </main>
-    </div>
+            <form onSubmit={changePassword} className="space-y-3 px-5 py-4">
+              {passwordError ? <Banner tone="error">{passwordError}</Banner> : null}
+              <Field label="Current password">
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </Field>
+              <Field label="New password">
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+              </Field>
+              <div className="flex justify-end border-t border-[var(--color-border)] pt-4">
+                <Button type="submit" disabled={passwordBusy || !currentPassword || !newPassword}>
+                  {passwordBusy ? "Saving…" : "Update password"}
+                </Button>
+              </div>
+            </form>
+          </Panel>
+        </div>
+      ) : null}
+
+      {showCreate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close create tenant dialog"
+            className="absolute inset-0 bg-slate-900/45"
+            onClick={() => {
+              if (!busy) setShowCreate(false);
+            }}
+          />
+          <Panel className="relative z-10 w-full max-w-lg shadow-[var(--shadow-md)]">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border)] px-5 py-4">
+              <div>
+                <h2 id="create-tenant-title" className="text-[15px] font-semibold text-[var(--color-text)]">
+                  Create tenant
+                </h2>
+                <p className="mt-1 text-[13px] text-[var(--color-text-muted)]">
+                  Creates the organization and emails the first Administrator an activation link. They must activate
+                  from that email before they can sign in to TalentBridge.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 w-8 shrink-0 px-0"
+                aria-label="Close"
+                disabled={busy}
+                onClick={() => setShowCreate(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <form onSubmit={createTenant} className="space-y-3 px-5 py-4" aria-labelledby="create-tenant-title">
+              {error ? <Banner tone="error">{error}</Banner> : null}
+              <Field label="Staffing firm name">
+                <Input
+                  placeholder="e.g. Northstar Staffing"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </Field>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Administrator name">
+                  <Input
+                    placeholder="Full name"
+                    value={newAdminName}
+                    onChange={(e) => setNewAdminName(e.target.value)}
+                    required
+                  />
+                </Field>
+                <Field label="Administrator email">
+                  <Input
+                    type="email"
+                    placeholder="admin@firm.com"
+                    value={newAdminEmail}
+                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+              <Banner tone="info">
+                An activation email is sent to this address. The Administrator can only complete setup from that link —
+                they cannot sign in until they activate.
+              </Banner>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={newJnpAllowed}
+                  onChange={(e) => setNewJnpAllowed(e.target.checked)}
+                />
+                <span className="text-[13px] text-[var(--color-text-secondary)]">
+                  Allow JobsNProfiles
+                  <span className="mt-0.5 block text-[12px] text-[var(--color-text-muted)]">
+                    Tenant administrators can map recruiters and pull candidates only if this is on.
+                  </span>
+                </span>
+              </label>
+              <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] pt-4">
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={busy || !newName.trim() || !newAdminName.trim() || !newAdminEmail.trim()}
+                >
+                  {busy ? "Creating…" : "Create & send activation"}
+                </Button>
+              </div>
+            </form>
+          </Panel>
+        </div>
+      ) : null}
+    </>
   );
 }

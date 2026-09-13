@@ -2,7 +2,8 @@ import { SignJWT, jwtVerify } from "jose";
 import type { NextResponse } from "next/server";
 
 export const SESSION_COOKIE = "tb_platform_session";
-export const SESSION_MAX_AGE_SEC = 60 * 60 * 12;
+/** 8-hour session — industry-typical for admin consoles */
+export const SESSION_MAX_AGE_SEC = 60 * 60 * 8;
 
 export type PlatformSessionClaims = {
   platformAdminId: string;

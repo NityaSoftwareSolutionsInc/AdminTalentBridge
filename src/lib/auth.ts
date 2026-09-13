@@ -6,6 +6,8 @@ export type PlatformSession = {
   platformAdminId: string;
   name: string;
   email: string;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
 };
 
 export async function getPlatformSession(): Promise<PlatformSession | null> {
@@ -20,11 +22,14 @@ export async function getPlatformSession(): Promise<PlatformSession | null> {
     where: { id: claims.platformAdminId, enabled: true },
   });
   if (!admin) return null;
+  if (admin.lockedUntil && admin.lockedUntil > new Date()) return null;
 
   return {
     platformAdminId: admin.id,
     name: admin.name,
     email: admin.email,
+    mustChangePassword: Boolean(admin.mustChangePassword),
+    lastLoginAt: admin.lastLoginAt?.toISOString() ?? null,
   };
 }
 

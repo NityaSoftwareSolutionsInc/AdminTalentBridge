@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { sendTransactionalEmail, sendgridConfigured } from "@/integrations/sendgrid";
 import { hashToken, newSecretToken } from "./password";
+import { logPlatformEmail } from "./email-log";
 
 const INVITE_EXPIRY_HOURS = 48;
 
@@ -18,6 +19,7 @@ export function talentBridgeBaseUrl() {
 export async function issueTenantAdminInvite(input: {
   userId: string;
   tenantId: string;
+  actorId?: string;
   actorName: string;
   tenantName: string;
 }) {
@@ -41,41 +43,67 @@ export async function issueTenantAdminInvite(input: {
     },
   });
 
-  const subject = `You're invited to TalentBridge as Administrator (${input.tenantName})`;
-  const intro = `${input.actorName} invited you as Administrator for ${input.tenantName} on TalentBridge. Set your password to sign in.`;
+  const subject = `Activate your TalentBridge Administrator account (${input.tenantName})`;
+  const intro = `${input.actorName} created ${input.tenantName} on TalentBridge and named you as the first Administrator. Open the link in this email to activate your account and set your password. You cannot sign in until you activate.`;
   const text = [
     `Hi ${user.name},`,
     "",
     intro,
     "",
-    `Set your password: ${url}`,
-    `This link expires in ${INVITE_EXPIRY_HOURS} hours.`,
+    `Activate your account: ${url}`,
+    `This activation link expires in ${INVITE_EXPIRY_HOURS} hours and can be used once.`,
     "",
     "If you did not expect this email, ignore it.",
   ].join("\n");
   const html = `<p>Hi ${escapeHtml(user.name)},</p>
 <p>${escapeHtml(intro)}</p>
-<p><a href="${escapeHtml(url)}">Set your password</a></p>
-<p>This link expires in ${INVITE_EXPIRY_HOURS} hours.</p>
+<p><a href="${escapeHtml(url)}">Activate your account</a></p>
+<p>This activation link expires in ${INVITE_EXPIRY_HOURS} hours and can be used once.</p>
 <p>If you did not expect this email, ignore it.</p>`;
 
-  const delivery = await sendTransactionalEmail({
-    to: user.email,
+  let status: "sent" | "stubbed" | "failed" = "stubbed";
+  let providerId = "";
+  let error = "";
+  try {
+    const delivery = await sendTransactionalEmail({
+      to: user.email,
+      subject,
+      text,
+      html,
+    });
+    status = delivery.stub ? "stubbed" : "sent";
+    providerId = delivery.messageId || "";
+    if (delivery.stub) {
+      console.info("[sendgrid-stub] tenant admin invite", { to: user.email, url });
+    }
+  } catch (e) {
+    status = "failed";
+    error = e instanceof Error ? e.message : "send failed";
+  }
+
+  await logPlatformEmail({
+    kind: "tenant_admin_invite",
+    toEmail: user.email,
     subject,
-    text,
-    html,
+    status,
+    providerId,
+    error,
+    tenantId: input.tenantId,
+    actorId: input.actorId || null,
+    relatedUserId: user.id,
+    previewUrl: status === "stubbed" ? url : "",
   });
 
-  if (delivery.stub) {
-    console.info("[sendgrid-stub] tenant admin invite", { to: user.email, url });
+  if (status === "failed") {
+    throw new Error(error || "Invitation email could not be sent");
   }
 
   return {
     userId: user.id,
     email: user.email,
-    sent: delivery.sent,
-    stub: delivery.stub,
+    sent: status === "sent",
+    stub: status === "stubbed",
     configured: sendgridConfigured(),
-    previewUrl: delivery.stub ? url : undefined,
+    previewUrl: status === "stubbed" ? url : undefined,
   };
 }

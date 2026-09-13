@@ -22,8 +22,33 @@ export async function platformAudit(input: {
   });
 }
 
-export async function listPlatformAudit(limit = 100) {
-  const rows = await prisma.platformAuditEvent.findMany({
+export type PlatformAuditFilter = {
+  limit?: number;
+  action?: string;
+  tenantId?: string;
+  actorId?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+};
+
+export async function listPlatformAudit(filter: PlatformAuditFilter | number = 100) {
+  const opts: PlatformAuditFilter = typeof filter === "number" ? { limit: filter } : filter;
+  const limit = Math.min(Math.max(opts.limit || 100, 1), 500);
+
+  const where: Record<string, unknown> = {};
+  if (opts.action?.trim()) where.action = { contains: opts.action.trim(), mode: "insensitive" };
+  if (opts.tenantId) where.tenantId = opts.tenantId;
+  if (opts.actorId) where.actorId = opts.actorId;
+  if (opts.from || opts.to) {
+    where.createdAt = {
+      ...(opts.from ? { gte: new Date(opts.from) } : {}),
+      ...(opts.to ? { lte: new Date(opts.to) } : {}),
+    };
+  }
+
+  let rows = await prisma.platformAuditEvent.findMany({
+    where,
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -49,7 +74,7 @@ export async function listPlatformAudit(limit = 100) {
   const actorMap = new Map(actors.map((a) => [a.id, a]));
   const tenantMap = new Map(tenants.map((t) => [t.id, t.name]));
 
-  return rows.map((r) => {
+  let mapped = rows.map((r) => {
     const actor = actorMap.get(r.actorId);
     return {
       id: r.id,
@@ -66,4 +91,18 @@ export async function listPlatformAudit(limit = 100) {
       createdAt: r.createdAt.toISOString(),
     };
   });
+
+  const q = opts.q?.trim().toLowerCase();
+  if (q) {
+    mapped = mapped.filter(
+      (r) =>
+        r.action.toLowerCase().includes(q) ||
+        r.actorName.toLowerCase().includes(q) ||
+        r.actorEmail.toLowerCase().includes(q) ||
+        (r.tenantName || "").toLowerCase().includes(q) ||
+        r.entityType.toLowerCase().includes(q),
+    );
+  }
+
+  return mapped;
 }
