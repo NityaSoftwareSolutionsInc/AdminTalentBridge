@@ -28,6 +28,7 @@ export async function listTenants() {
     id: t.id,
     name: t.name,
     enabled: t.enabled,
+    jnpAllowed: t.jnpAllowed,
     createdAt: t.createdAt.toISOString(),
     userCount: t._count.users,
     admins: t.users.map((u) => ({
@@ -40,7 +41,7 @@ export async function listTenants() {
   }));
 }
 
-export async function createTenant(name: string, actorId: string) {
+export async function createTenant(name: string, actorId: string, jnpAllowed = false) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Tenant name is required");
 
@@ -48,6 +49,7 @@ export async function createTenant(name: string, actorId: string) {
     data: {
       name: trimmed,
       enabled: true,
+      jnpAllowed: Boolean(jnpAllowed),
       settings: { create: {} },
     },
   });
@@ -58,10 +60,10 @@ export async function createTenant(name: string, actorId: string) {
     entityType: "tenant",
     entityId: tenant.id,
     tenantId: tenant.id,
-    after: { name: tenant.name, enabled: tenant.enabled },
+    after: { name: tenant.name, enabled: tenant.enabled, jnpAllowed: tenant.jnpAllowed },
   });
 
-  return { id: tenant.id, name: tenant.name, enabled: tenant.enabled };
+  return { id: tenant.id, name: tenant.name, enabled: tenant.enabled, jnpAllowed: tenant.jnpAllowed };
 }
 
 export async function setTenantEnabled(tenantId: string, enabled: boolean, actorId: string) {
@@ -83,7 +85,29 @@ export async function setTenantEnabled(tenantId: string, enabled: boolean, actor
     after: { name: tenant.name, enabled: tenant.enabled },
   });
 
-  return { id: tenant.id, name: tenant.name, enabled: tenant.enabled };
+  return { id: tenant.id, name: tenant.name, enabled: tenant.enabled, jnpAllowed: tenant.jnpAllowed };
+}
+
+export async function setTenantJnpAllowed(tenantId: string, jnpAllowed: boolean, actorId: string) {
+  const existing = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!existing) throw new Error("Tenant not found");
+
+  const tenant = await prisma.tenant.update({
+    where: { id: tenantId },
+    data: { jnpAllowed },
+  });
+
+  await platformAudit({
+    actorId,
+    action: jnpAllowed ? "allow_tenant_jnp" : "revoke_tenant_jnp",
+    entityType: "tenant",
+    entityId: tenant.id,
+    tenantId: tenant.id,
+    before: { name: existing.name, jnpAllowed: existing.jnpAllowed },
+    after: { name: tenant.name, jnpAllowed: tenant.jnpAllowed },
+  });
+
+  return { id: tenant.id, name: tenant.name, enabled: tenant.enabled, jnpAllowed: tenant.jnpAllowed };
 }
 
 export async function createFirstTenantAdmin(input: {

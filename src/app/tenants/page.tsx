@@ -15,6 +15,7 @@ type TenantRow = {
   id: string;
   name: string;
   enabled: boolean;
+  jnpAllowed: boolean;
   createdAt: string;
   userCount: number;
   admins: AdminRow[];
@@ -108,6 +109,7 @@ export default function TenantsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newJnpAllowed, setNewJnpAllowed] = useState(false);
   const [adminForms, setAdminForms] = useState<Record<string, { name: string; email: string }>>({});
 
   const load = useCallback(async () => {
@@ -154,7 +156,7 @@ export default function TenantsPage() {
       const res = await fetch("/api/tenants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: newName, jnpAllowed: newJnpAllowed }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -162,7 +164,36 @@ export default function TenantsPage() {
         return;
       }
       setNewName("");
-      setNotice(`Created tenant “${data.tenant.name}”. Invite the first Administrator below.`);
+      setNewJnpAllowed(false);
+      setNotice(
+        `Created tenant “${data.tenant.name}”. JobsNProfiles is ${
+          data.tenant.jnpAllowed ? "allowed" : "not allowed"
+        }. Invite the first Administrator below.`,
+      );
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleJnpAllowed(tenant: TenantRow) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/tenants", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: tenant.id, jnpAllowed: !tenant.jnpAllowed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not update JobsNProfiles access");
+        return;
+      }
+      setNotice(
+        `${data.tenant.name}: JobsNProfiles is now ${data.tenant.jnpAllowed ? "allowed" : "not allowed"}.`,
+      );
       await load();
     } finally {
       setBusy(false);
@@ -269,7 +300,7 @@ export default function TenantsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Platform</p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">Organizations</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Create tenants, enable or disable access, and invite the first Administrator.
+              Create tenants, decide JobsNProfiles access, enable or disable the org, and invite the first Administrator.
             </p>
           </div>
           <p className="text-sm text-slate-500">
@@ -288,7 +319,9 @@ export default function TenantsPage() {
 
         <section className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
           <h3 className="text-[15px] font-semibold text-slate-900">Create tenant</h3>
-          <p className="mt-1 text-sm text-slate-600">Adds the org root and default TalentBridge settings.</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Adds the org root and default TalentBridge settings. JobsNProfiles is off unless you allow it here.
+          </p>
           <form
             onSubmit={createTenant}
             className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
@@ -312,6 +345,20 @@ export default function TenantsPage() {
             >
               Create
             </button>
+            <label className="flex items-start gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                checked={newJnpAllowed}
+                onChange={(e) => setNewJnpAllowed(e.target.checked)}
+              />
+              <span className="text-sm text-slate-700">
+                Allow JobsNProfiles
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Tenant administrators can map recruiters and pull candidates only if this is on.
+                </span>
+              </span>
+            </label>
           </form>
         </section>
 
@@ -325,7 +372,7 @@ export default function TenantsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-left">
+              <table className="w-full min-w-[860px] border-collapse text-left">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
@@ -337,10 +384,13 @@ export default function TenantsPage() {
                     <th className="w-28 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                       Status
                     </th>
+                    <th className="w-28 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                      JNP
+                    </th>
                     <th className="px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                       Administrator
                     </th>
-                    <th className="w-32 px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    <th className="w-44 px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                       Actions
                     </th>
                   </tr>
@@ -361,6 +411,11 @@ export default function TenantsPage() {
                         <td className="px-5 py-4">
                           <Badge tone={tenant.enabled ? "green" : "slate"}>
                             {tenant.enabled ? "Enabled" : "Disabled"}
+                          </Badge>
+                        </td>
+                        <td className="px-5 py-4">
+                          <Badge tone={tenant.jnpAllowed ? "green" : "slate"}>
+                            {tenant.jnpAllowed ? "Allowed" : "Not allowed"}
                           </Badge>
                         </td>
                         <td className="px-5 py-4">
@@ -436,14 +491,24 @@ export default function TenantsPage() {
                           )}
                         </td>
                         <td className="px-5 py-4 text-right">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => void toggleEnabled(tenant)}
-                            className="h-9 min-w-[96px] rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 hover:border-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                          >
-                            {tenant.enabled ? "Disable" : "Enable"}
-                          </button>
+                          <div className="flex flex-col items-end gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void toggleJnpAllowed(tenant)}
+                              className="h-9 min-w-[110px] rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 hover:border-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                            >
+                              {tenant.jnpAllowed ? "Revoke JNP" : "Allow JNP"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void toggleEnabled(tenant)}
+                              className="h-9 min-w-[110px] rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 hover:border-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                            >
+                              {tenant.enabled ? "Disable" : "Enable"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

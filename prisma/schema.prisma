@@ -31,10 +31,12 @@ model PlatformAdmin {
 }
 
 model Tenant {
-  id        String   @id @default(uuid())
-  name      String
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  name       String
+  enabled    Boolean  @default(true)
+  /// Platform entitlement: JobsNProfiles is available in this tenant. Set by Global Admin.
+  jnpAllowed Boolean  @default(false) @map("jnp_allowed")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   users       User[]
   memberships Membership[]
