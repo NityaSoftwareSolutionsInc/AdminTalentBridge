@@ -8,7 +8,8 @@ function daysAgo(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
-function mapTenantBase(t: {
+/** Local shape — avoids stale multi-root Prisma client typings in the IDE. */
+type TenantRecord = {
   id: string;
   name: string;
   enabled: boolean;
@@ -23,7 +24,19 @@ function mapTenantBase(t: {
   notes: string;
   accountOwner: string;
   createdAt: Date;
-}) {
+};
+
+type AdminUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  inviteSentAt: Date | null;
+  passwordSetAt: Date | null;
+  passwordHash: string | null;
+  lastLoginAt: Date | null;
+};
+
+function mapTenantBase(t: TenantRecord) {
   return {
     id: t.id,
     name: t.name,
@@ -42,11 +55,31 @@ function mapTenantBase(t: {
   };
 }
 
+function asTenantRecord(value: unknown): TenantRecord {
+  const t = value as Partial<TenantRecord> & { id: string; name: string; createdAt: Date };
+  return {
+    id: t.id,
+    name: t.name,
+    enabled: Boolean(t.enabled),
+    jnpAllowed: Boolean(t.jnpAllowed),
+    outlookAllowed: t.outlookAllowed !== false,
+    viotalkAllowed: t.viotalkAllowed !== false,
+    maintenanceMode: Boolean(t.maintenanceMode),
+    maintenanceMessage: String(t.maintenanceMessage || ""),
+    legalName: String(t.legalName || ""),
+    billingContact: String(t.billingContact || ""),
+    region: String(t.region || ""),
+    notes: String(t.notes || ""),
+    accountOwner: String(t.accountOwner || ""),
+    createdAt: t.createdAt,
+  };
+}
+
 export async function listTenants() {
   const since7 = daysAgo(7);
   const since30 = daysAgo(30);
 
-  const rows = await prisma.tenant.findMany({
+  const rows = (await prisma.tenant.findMany({
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { users: true, mailboxMaps: true } },
@@ -65,20 +98,29 @@ export async function listTenants() {
         },
       },
     },
-  });
+  })) as unknown as Array<
+    TenantRecord & {
+      _count: { users: number; mailboxMaps: number };
+      users: AdminUserRow[];
+    }
+  >;
 
   const tenantIds = rows.map((t) => t.id);
   const [active7, active30, recentAudits] = await Promise.all([
-    prisma.user.groupBy({
-      by: ["tenantId"],
-      where: { tenantId: { in: tenantIds }, lastLoginAt: { gte: since7 } },
-      _count: { _all: true },
-    }),
-    prisma.user.groupBy({
-      by: ["tenantId"],
-      where: { tenantId: { in: tenantIds }, lastLoginAt: { gte: since30 } },
-      _count: { _all: true },
-    }),
+    tenantIds.length
+      ? prisma.user.groupBy({
+          by: ["tenantId"],
+          where: { tenantId: { in: tenantIds }, lastLoginAt: { gte: since7 } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([] as Array<{ tenantId: string; _count: { _all: number } }>),
+    tenantIds.length
+      ? prisma.user.groupBy({
+          by: ["tenantId"],
+          where: { tenantId: { in: tenantIds }, lastLoginAt: { gte: since30 } },
+          _count: { _all: true },
+        })
+      : Promise.resolve([] as Array<{ tenantId: string; _count: { _all: number } }>),
     tenantIds.length
       ? prisma.platformAuditEvent.findMany({
           where: { tenantId: { in: tenantIds } },
@@ -86,7 +128,7 @@ export async function listTenants() {
           take: 200,
           select: { tenantId: true, action: true, createdAt: true },
         })
-      : Promise.resolve([]),
+      : Promise.resolve([] as Array<{ tenantId: string | null; action: string; createdAt: Date }>),
   ]);
 
   const map7 = new Map(active7.map((r) => [r.tenantId, r._count._all]));
@@ -99,14 +141,12 @@ export async function listTenants() {
 
   return rows.map((t) => {
     const pendingAdmins = t.users.filter((u) => !u.passwordHash);
-    const oldestPending = pendingAdmins
+    const pendingInviteDates = pendingAdmins
       .map((u) => u.inviteSentAt)
-      .filter(Boolean)
-      .sort((a, b) => +(a as Date) - +(b as Date))[0];
-    const lastUserLogin = t.users
-      .map((u) => u.lastLoginAt)
-      .filter(Boolean)
-      .sort((a, b) => +(b as Date) - +(a as Date))[0];
+      .filter((d): d is Date => d != null);
+    const oldestPending = pendingInviteDates.sort((a, b) => +a - +b)[0] ?? null;
+    const loginDates = t.users.map((u) => u.lastLoginAt).filter((d): d is Date => d != null);
+    const lastUserLogin = loginDates.sort((a, b) => +b - +a)[0] ?? null;
     const lastAudit = auditMap.get(t.id);
 
     return {
@@ -137,7 +177,7 @@ export async function listTenants() {
 
 export async function getTenantDetail(tenantId: string) {
   const tenants = await listTenants();
-  const tenant = tenants.find((t) => t.id === tenantId);
+  const tenant = tenants.find((row) => row.id === tenantId);
   if (!tenant) throw new Error("Tenant not found");
 
   const recentAudit = await prisma.platformAuditEvent.findMany({
@@ -174,10 +214,11 @@ export type TenantUpdateInput = {
 };
 
 export async function updateTenant(tenantId: string, patch: TenantUpdateInput, actorId: string) {
-  const existing = await prisma.tenant.findUnique({ where: { id: tenantId } });
-  if (!existing) throw new Error("Tenant not found");
+  const existingRaw = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!existingRaw) throw new Error("Tenant not found");
+  const existing = asTenantRecord(existingRaw);
 
-  const data: Record<string, unknown> = {};
+  const data: Record<string, string | boolean> = {};
   if (patch.legalName !== undefined) data.legalName = String(patch.legalName || "").trim();
   if (patch.billingContact !== undefined) data.billingContact = String(patch.billingContact || "").trim();
   if (patch.region !== undefined) data.region = String(patch.region || "").trim();
@@ -194,7 +235,12 @@ export async function updateTenant(tenantId: string, patch: TenantUpdateInput, a
 
   if (!Object.keys(data).length) throw new Error("No changes provided");
 
-  const tenant = await prisma.tenant.update({ where: { id: tenantId }, data });
+  const tenant = asTenantRecord(
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: data as never,
+    }),
+  );
 
   if (existing.enabled && tenant.enabled === false) {
     await notifyTenantDisabled(tenant.id, tenant.name).catch(() => null);
@@ -220,29 +266,38 @@ export async function createTenant(
   actorId: string,
   jnpAllowed = false,
   firstAdmin: { name: string; email: string; actorName: string },
-  meta?: Partial<Pick<TenantUpdateInput, "legalName" | "billingContact" | "region" | "notes" | "accountOwner" | "outlookAllowed" | "viotalkAllowed">>,
+  meta?: Partial<
+    Pick<
+      TenantUpdateInput,
+      "legalName" | "billingContact" | "region" | "notes" | "accountOwner" | "outlookAllowed" | "viotalkAllowed"
+    >
+  >,
 ) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Tenant name is required");
   if (!firstAdmin?.name?.trim() || !firstAdmin?.email?.trim()) {
-    throw new Error("First Administrator name and email are required. They must activate from the email invitation.");
+    throw new Error(
+      "First Administrator name and email are required. They must activate from the email invitation.",
+    );
   }
 
-  const tenant = await prisma.tenant.create({
-    data: {
-      name: trimmed,
-      enabled: true,
-      jnpAllowed: Boolean(jnpAllowed),
-      outlookAllowed: meta?.outlookAllowed !== false,
-      viotalkAllowed: meta?.viotalkAllowed !== false,
-      legalName: String(meta?.legalName || "").trim(),
-      billingContact: String(meta?.billingContact || "").trim(),
-      region: String(meta?.region || "").trim(),
-      notes: String(meta?.notes || "").trim(),
-      accountOwner: String(meta?.accountOwner || "").trim(),
-      settings: { create: {} },
-    },
-  });
+  const tenant = asTenantRecord(
+    await prisma.tenant.create({
+      data: {
+        name: trimmed,
+        enabled: true,
+        jnpAllowed: Boolean(jnpAllowed),
+        outlookAllowed: meta?.outlookAllowed !== false,
+        viotalkAllowed: meta?.viotalkAllowed !== false,
+        legalName: String(meta?.legalName || "").trim(),
+        billingContact: String(meta?.billingContact || "").trim(),
+        region: String(meta?.region || "").trim(),
+        notes: String(meta?.notes || "").trim(),
+        accountOwner: String(meta?.accountOwner || "").trim(),
+        settings: { create: {} },
+      } as never,
+    }),
+  );
 
   await platformAudit({
     actorId,
