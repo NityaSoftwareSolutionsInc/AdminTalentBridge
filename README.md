@@ -8,7 +8,7 @@ TalentBridge Contact Manager (`C:\Office\Talent-Bridge`) is the tenant workspace
 
 1. PostgreSQL from Talent-Bridge (`npm run db:up` in Talent-Bridge)
 2. Schema migrations / `prisma db push` run **from Talent-Bridge** (this repo does not own migrations)
-3. Seed platform users from Talent-Bridge: `npm run db:seed`
+3. Seed platform admins from Talent-Bridge: `npm run db:seed` (admins only — create tenants in this app)
 
 Default accounts (after seed), password `ChangeMe123!`:
 
