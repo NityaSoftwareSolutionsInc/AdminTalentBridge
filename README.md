@@ -27,6 +27,18 @@ npm run dev
 
 App runs at [http://localhost:3012](http://localhost:3012). Uses the same Postgres as Talent-Bridge (`127.0.0.1:5435`).
 
+### Production / Dev server via Docker
+
+Prefer starting from Talent-Bridge (sibling folder required):
+
+```bash
+cd ../Talent-Bridge
+cp .env.docker.example .env
+npm run docker:up
+```
+
+Admin is built from this repo’s `Dockerfile` and published on `127.0.0.1:3012`.
+
 ## Env
 
 | Variable | Purpose |
