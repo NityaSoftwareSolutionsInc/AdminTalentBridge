@@ -40,10 +40,10 @@ const NAV_ITEMS: Array<{
 }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["global_admin", "manager", "support"] },
   { key: "organizations", label: "Organizations", icon: Building2, roles: ["global_admin", "manager", "support"] },
-  { key: "tickets", label: "Tickets", icon: LifeBuoy, roles: ["global_admin", "manager", "support"] },
-  { key: "audit", label: "Audit log", icon: ScrollText, roles: ["global_admin", "manager"] },
   { key: "platform-admins", label: "Platform users", icon: Shield, roles: ["global_admin"] },
   { key: "email-logs", label: "Email delivery", icon: Mail, roles: ["global_admin"] },
+  { key: "tickets", label: "Tickets", icon: LifeBuoy, roles: ["global_admin", "manager", "support"] },
+  { key: "audit", label: "Audit log", icon: ScrollText, roles: ["global_admin", "manager"] },
 ];
 
 const TITLES: Record<AdminNavKey, string> = {

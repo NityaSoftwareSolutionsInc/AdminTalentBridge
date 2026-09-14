@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, X } from "lucide-react";
+import { Mail, Plus, Search, X } from "lucide-react";
 import { AdminShell, type AdminNavKey, type AdminSessionRole } from "@/components/AdminShell";
 import { DashboardView } from "@/components/DashboardView";
 import { EmailLogsView } from "@/components/EmailLogsView";
@@ -504,15 +504,15 @@ export default function TenantsPage() {
                       }
                     />
                   ) : (
-                    <DataTable minWidth="1100px">
+                    <DataTable minWidth="1040px">
                       <thead className="sticky top-0 z-10">
                         <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
                           <Th>Tenant</Th>
-                          <Th className="w-24">Users</Th>
+                          <Th className="w-20">Users</Th>
                           <Th className="w-28">Status</Th>
-                          <Th className="w-32">JNP</Th>
+                          <Th className="w-28">JNP</Th>
                           <Th>Administrator</Th>
-                          <Th className="w-48" align="right">
+                          <Th className="w-56" align="right">
                             Actions
                           </Th>
                         </tr>
@@ -524,35 +524,38 @@ export default function TenantsPage() {
                           const active7d = tenant.activeUsers7d ?? 0;
                           const mailboxes = tenant.mailboxMappedCount ?? 0;
                           const pendingAging = tenant.invitePendingAgingDays;
+                          const needsActivation = Boolean(firstAdmin && !firstAdmin.passwordSet);
                           return (
                             <tr
                               key={tenant.id}
-                              className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-muted)]/70"
+                              className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-muted)]/50"
                             >
                               <Td>
-                                <button
-                                  type="button"
-                                  className="text-left font-semibold text-[var(--color-accent)] hover:underline"
-                                  onClick={() => setSelectedTenantId(tenant.id)}
-                                >
-                                  {tenant.name}
-                                </button>
-                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                  {tenant.maintenanceMode ? <Badge tone="amber">Maintenance</Badge> : null}
+                                <div className="min-w-0 max-w-[280px]">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="truncate text-left text-[13px] font-semibold text-[var(--color-text)] hover:text-[var(--color-accent)]"
+                                      onClick={() => setSelectedTenantId(tenant.id)}
+                                    >
+                                      {tenant.name}
+                                    </button>
+                                    {tenant.maintenanceMode ? <Badge tone="amber">Maintenance</Badge> : null}
+                                  </div>
+                                  <p className="mt-1 truncate text-[12px] text-[var(--color-text-muted)]">
+                                    {active7d} active · {mailboxes} mailboxes
+                                    {pendingAging != null && pendingAging > 0
+                                      ? ` · pending ${pendingAging}d`
+                                      : ""}
+                                  </p>
+                                  <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-muted)]">
+                                    {formatDate(tenant.createdAt)}
+                                    {tenant.createdBy ? ` · ${tenant.createdBy.name}` : ""}
+                                  </p>
                                 </div>
-                                <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">
-                                  Active 7d {active7d} · Mailboxes {mailboxes}
-                                  {pendingAging != null && pendingAging > 0
-                                    ? ` · Pending aging ${pendingAging}d`
-                                    : ""}
-                                </p>
-                                <p className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
-                                  Created {formatDate(tenant.createdAt)}
-                                  {tenant.createdBy ? ` · by ${tenant.createdBy.name}` : ""}
-                                </p>
                               </Td>
                               <Td>
-                                <span className="font-medium tabular-nums text-[var(--color-text)]">
+                                <span className="tabular-nums text-[13px] font-medium text-[var(--color-text)]">
                                   {tenant.userCount}
                                 </span>
                               </Td>
@@ -563,42 +566,36 @@ export default function TenantsPage() {
                               </Td>
                               <Td>
                                 <Badge tone={tenant.jnpAllowed ? "green" : "slate"}>
-                                  {tenant.jnpAllowed ? "Allowed" : "Not allowed"}
+                                  {tenant.jnpAllowed ? "Allowed" : "Off"}
                                 </Badge>
                               </Td>
                               <Td>
                                 {firstAdmin ? (
-                                  <div className="flex flex-wrap items-end justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="font-medium text-[var(--color-text)]">{firstAdmin.name}</p>
-                                      <p className="truncate text-[12px] text-[var(--color-text-muted)]">
-                                        {firstAdmin.email}
-                                      </p>
-                                      <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">
-                                        {firstAdmin.passwordSet
-                                          ? "Activated"
-                                          : firstAdmin.inviteSentAt
-                                            ? `Activation pending · emailed ${formatDate(firstAdmin.inviteSentAt)}`
+                                  <div className="min-w-0 max-w-[260px]">
+                                    <p className="truncate text-[13px] font-medium text-[var(--color-text)]">
+                                      {firstAdmin.name}
+                                    </p>
+                                    <p className="truncate text-[12px] text-[var(--color-text-muted)]">
+                                      {firstAdmin.email}
+                                    </p>
+                                    <div className="mt-1.5">
+                                      {firstAdmin.passwordSet ? (
+                                        <Badge tone="green">Activated</Badge>
+                                      ) : (
+                                        <Badge tone="amber">
+                                          {firstAdmin.inviteSentAt
+                                            ? `Pending · ${formatDate(firstAdmin.inviteSentAt)}`
                                             : "Not activated"}
-                                      </p>
+                                        </Badge>
+                                      )}
                                     </div>
-                                    {!firstAdmin.passwordSet && tenant.canMutate ? (
-                                      <Button
-                                        type="button"
-                                        variant="secondary"
-                                        disabled={busy}
-                                        onClick={() => void resendInvite(tenant.id, firstAdmin.id)}
-                                      >
-                                        Resend activation
-                                      </Button>
-                                    ) : null}
                                   </div>
                                 ) : tenant.canMutate ? (
-                                  <div>
-                                    <p className="mb-2 text-[13px] text-[var(--color-text-muted)]">
-                                      No administrator yet
+                                  <div className="max-w-[360px] rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)]/60 p-3">
+                                    <p className="mb-2 text-[12px] font-medium text-[var(--color-text-secondary)]">
+                                      Invite first administrator
                                     </p>
-                                    <div className="grid grid-cols-1 gap-2 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
                                       <Field label="Name">
                                         <Input
                                           placeholder="Full name"
@@ -613,7 +610,7 @@ export default function TenantsPage() {
                                       </Field>
                                       <Field label="Email">
                                         <Input
-                                          placeholder="admin@firm.com"
+                                          placeholder="admin@yourcompany.com"
                                           type="email"
                                           value={form.email}
                                           onChange={(e) =>
@@ -626,6 +623,7 @@ export default function TenantsPage() {
                                       </Field>
                                       <Button
                                         type="button"
+                                        size="sm"
                                         disabled={busy || !form.name.trim() || !form.email.trim()}
                                         onClick={() => void createAdmin(tenant.id)}
                                       >
@@ -634,36 +632,56 @@ export default function TenantsPage() {
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-[13px] text-[var(--color-text-muted)]">No administrator yet</p>
+                                  <p className="text-[12px] text-[var(--color-text-muted)]">No administrator</p>
                                 )}
                               </Td>
                               <Td align="right">
-                                <div className="flex flex-col items-end gap-2">
-                                  {tenant.canMutate ? (
-                                    <>
-                                  <Button
-                                    type="button"
-                                    variant="secondary"
-                                    className="min-w-[118px]"
-                                    disabled={busy}
-                                    onClick={() => void toggleJnpAllowed(tenant)}
-                                  >
-                                    {tenant.jnpAllowed ? "Revoke JNP" : "Allow JNP"}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="secondary"
-                                    className="min-w-[118px]"
-                                    disabled={busy}
-                                    onClick={() => void toggleEnabled(tenant)}
-                                  >
-                                    {tenant.enabled ? "Disable" : "Enable"}
-                                  </Button>
-                                    </>
-                                  ) : (
-                                    <span className="text-[12px] text-[var(--color-text-muted)]">View only</span>
-                                  )}
-                                </div>
+                                {tenant.canMutate ? (
+                                  <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                                    {needsActivation && firstAdmin ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        disabled={busy}
+                                        title="Resend activation email"
+                                        onClick={() => void resendInvite(tenant.id, firstAdmin.id)}
+                                      >
+                                        <Mail className="h-3.5 w-3.5" />
+                                        Resend
+                                      </Button>
+                                    ) : null}
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={busy}
+                                      onClick={() => void toggleJnpAllowed(tenant)}
+                                    >
+                                      {tenant.jnpAllowed ? "Revoke JNP" : "Allow JNP"}
+                                    </Button>
+                                    <span
+                                      className="mx-0.5 hidden h-4 w-px bg-[var(--color-border)] sm:inline-block"
+                                      aria-hidden
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={busy}
+                                      className={
+                                        tenant.enabled
+                                          ? "text-red-600 hover:bg-red-50 hover:text-red-700"
+                                          : "text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                                      }
+                                      onClick={() => void toggleEnabled(tenant)}
+                                    >
+                                      {tenant.enabled ? "Disable" : "Enable"}
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[12px] text-[var(--color-text-muted)]">View only</span>
+                                )}
                               </Td>
                             </tr>
                           );
@@ -885,7 +903,7 @@ export default function TenantsPage() {
                 <Field label="Administrator email">
                   <Input
                     type="email"
-                    placeholder="admin@firm.com"
+                    placeholder="admin@yourcompany.com"
                     value={newAdminEmail}
                     onChange={(e) => setNewAdminEmail(e.target.value)}
                     required
@@ -893,8 +911,8 @@ export default function TenantsPage() {
                 </Field>
               </div>
               <Banner tone="info">
-                An activation email is sent to this address. The Administrator can only complete setup from that link —
-                they cannot sign in until they activate.
+                Use a business email (not Gmail, Yahoo, Outlook.com, etc.). An activation email is sent to this
+                address — the Administrator cannot sign in until they activate from that link.
               </Banner>
               <label className="flex items-start gap-2">
                 <input

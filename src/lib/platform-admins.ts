@@ -4,17 +4,13 @@ import { assertPassword, hashPassword, hashToken, newSecretToken } from "./passw
 import { sendTransactionalEmail, sendgridConfigured } from "@/integrations/sendgrid";
 import { logPlatformEmail } from "./email-log";
 import { PLATFORM_ROLE_LABEL, type PlatformRole } from "./platform-rbac";
+import { assertBusinessEmail } from "./business-email";
+import { buildTransactionalEmail } from "./email-template";
+import { talentBridgeBaseUrl } from "./invite";
 
 const INVITE_EXPIRY_HOURS = 48;
 const LOCK_AFTER_FAILURES = 5;
 const LOCK_MINUTES = 15;
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (ch) => {
-    const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-    return map[ch] || ch;
-  });
-}
 
 function adminBaseUrl() {
   return (process.env.APP_BASE_URL || "http://localhost:3012").trim().replace(/\/$/, "");
@@ -56,9 +52,9 @@ export async function invitePlatformAdmin(input: {
   actorId: string;
   actorName: string;
 }) {
-  const email = input.email.trim().toLowerCase();
+  const email = assertBusinessEmail(input.email);
   const name = input.name.trim();
-  if (!email || !name) throw new Error("Name and email are required");
+  if (!name) throw new Error("Name and email are required");
 
   const existing = await prisma.platformAdmin.findUnique({ where: { email } });
   if (existing) throw new Error("A platform user with that email already exists");
@@ -118,6 +114,14 @@ export async function issuePlatformAdminInvite(input: {
   const roleLabel = PLATFORM_ROLE_LABEL[(admin as { role?: PlatformRole }).role || "global_admin"];
   const subject = `Activate your TalentBridge ${roleLabel} account`;
   const intro = `${input.actorName} invited you as ${roleLabel} on TalentBridge Platform Admin. Activate from this email to set your password.`;
+  const { text, html } = buildTransactionalEmail({
+    greetingName: admin.name,
+    intro,
+    ctaLabel: "Activate your account",
+    ctaUrl: url,
+    footer: `This activation link expires in ${INVITE_EXPIRY_HOURS} hours and can be used once.`,
+    assetBaseUrl: talentBridgeBaseUrl(),
+  });
   let status: "sent" | "stubbed" | "failed" = "stubbed";
   let providerId = "";
   let error = "";
@@ -125,8 +129,8 @@ export async function issuePlatformAdminInvite(input: {
     const delivery = await sendTransactionalEmail({
       to: admin.email,
       subject,
-      text: [`Hi ${admin.name},`, "", intro, "", `Activate: ${url}`, `Expires in ${INVITE_EXPIRY_HOURS} hours.`].join("\n"),
-      html: `<p>Hi ${escapeHtml(admin.name)},</p><p>${escapeHtml(intro)}</p><p><a href="${escapeHtml(url)}">Activate your account</a></p>`,
+      text,
+      html,
     });
     status = delivery.stub ? "stubbed" : "sent";
     providerId = delivery.messageId || "";

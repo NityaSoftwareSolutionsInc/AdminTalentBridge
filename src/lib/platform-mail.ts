@@ -3,15 +3,9 @@ import { prisma } from "./db";
 import { sendTransactionalEmail, sendgridConfigured } from "@/integrations/sendgrid";
 import { assertPassword, hashPassword, hashToken, newSecretToken } from "./password";
 import { talentBridgeBaseUrl } from "./invite";
+import { buildTransactionalEmail } from "./email-template";
 
 const RESET_EXPIRY_HOURS = 24;
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (ch) => {
-    const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-    return map[ch] || ch;
-  });
-}
 
 function adminBaseUrl(originHeader?: string | null) {
   const configured = (process.env.APP_BASE_URL || "").trim().replace(/\/$/, "");
@@ -29,29 +23,22 @@ async function deliver(input: {
   ctaUrl?: string;
   footer?: string;
   stubLabel: string;
+  assetBaseUrl?: string;
 }) {
-  const lines = [`Hi ${input.name},`, "", input.intro, ""];
-  if (input.ctaUrl) lines.push(`${input.ctaLabel || "Open link"}: ${input.ctaUrl}`, "");
-  if (input.footer) lines.push(input.footer, "");
-  lines.push("If you did not expect this email, ignore it.");
-
-  const htmlParts = [
-    `<p>Hi ${escapeHtml(input.name)},</p>`,
-    `<p>${escapeHtml(input.intro)}</p>`,
-  ];
-  if (input.ctaUrl) {
-    htmlParts.push(
-      `<p><a href="${escapeHtml(input.ctaUrl)}">${escapeHtml(input.ctaLabel || "Open link")}</a></p>`,
-    );
-  }
-  if (input.footer) htmlParts.push(`<p>${escapeHtml(input.footer)}</p>`);
-  htmlParts.push("<p>If you did not expect this email, ignore it.</p>");
+  const { text, html } = buildTransactionalEmail({
+    greetingName: input.name,
+    intro: input.intro,
+    ctaLabel: input.ctaLabel,
+    ctaUrl: input.ctaUrl,
+    footer: input.footer,
+    assetBaseUrl: input.assetBaseUrl || talentBridgeBaseUrl(),
+  });
 
   const delivery = await sendTransactionalEmail({
     to: input.to,
     subject: input.subject,
-    text: lines.join("\n"),
-    html: htmlParts.join("\n"),
+    text,
+    html,
   });
   if (delivery.stub) {
     console.info(`[sendgrid-stub] ${input.stubLabel}`, {
@@ -99,6 +86,7 @@ export async function requestPlatformAdminForgotPassword(emailRaw: string, origi
       ctaUrl: url,
       footer: `This link expires in ${RESET_EXPIRY_HOURS} hours.`,
       stubLabel: "platform-admin-reset",
+      assetBaseUrl: adminBaseUrl(origin),
     });
   } catch {
     /* keep generic response */
@@ -137,7 +125,8 @@ export async function completePlatformAdminPasswordSetup(token: string, password
       to: admin.email,
       name: admin.name,
       subject: "Your TalentBridge platform password was changed",
-      intro: "Your platform password was set or changed successfully. If you did not do this, secure the account and rotate SendGrid/platform secrets.",
+      intro:
+        "Your platform password was set or changed successfully. If you did not do this, secure the account and rotate SendGrid/platform secrets.",
       stubLabel: "platform-admin-password-changed",
     });
   } catch (error) {
@@ -168,6 +157,7 @@ export async function notifyTenantDisabled(tenantId: string, tenantName: string)
         ctaLabel: "TalentBridge sign-in",
         ctaUrl: loginUrl,
         stubLabel: "tenant-disabled",
+        assetBaseUrl: talentBridgeBaseUrl(),
       }).catch((error) => {
         console.error("[sendgrid] tenant-disabled notice failed", error);
       }),
@@ -196,6 +186,7 @@ export async function notifyTenantEnabled(tenantId: string, tenantName: string) 
         ctaLabel: "Sign in to TalentBridge",
         ctaUrl: loginUrl,
         stubLabel: "tenant-enabled",
+        assetBaseUrl: talentBridgeBaseUrl(),
       }).catch((error) => {
         console.error("[sendgrid] tenant-enabled notice failed", error);
       }),

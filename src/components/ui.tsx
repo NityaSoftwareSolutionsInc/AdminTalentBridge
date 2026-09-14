@@ -105,12 +105,14 @@ export function Badge({
 }
 
 type BtnVariant = "primary" | "secondary" | "ghost";
+type BtnSize = "md" | "sm";
 
 export function Button({
   variant = "primary",
+  size = "md",
   className,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: BtnVariant }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: BtnVariant; size?: BtnSize }) {
   const styles: Record<BtnVariant, string> = {
     primary:
       "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-40",
@@ -119,11 +121,16 @@ export function Button({
     ghost:
       "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-40",
   };
+  const sizes: Record<BtnSize, string> = {
+    md: "h-9 px-3.5 text-[13px]",
+    sm: "h-8 px-2.5 text-[12px]",
+  };
   return (
     <button
       className={cn(
-        "inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-md)] px-3.5 text-[13px] font-medium",
+        "inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md)] font-medium",
         styles[variant],
+        sizes[size],
         className,
       )}
       {...props}
@@ -232,7 +239,7 @@ export function Td({
     <td
       title={title}
       className={cn(
-        "px-5 py-3 align-top text-[var(--color-text-secondary)]",
+        "px-5 py-3.5 align-middle text-[var(--color-text-secondary)]",
         align === "right" && "text-right",
         className,
       )}

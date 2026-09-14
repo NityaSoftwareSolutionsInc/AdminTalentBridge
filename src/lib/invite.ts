@@ -2,15 +2,9 @@ import { prisma } from "./db";
 import { sendTransactionalEmail, sendgridConfigured } from "@/integrations/sendgrid";
 import { hashToken, newSecretToken } from "./password";
 import { logPlatformEmail } from "./email-log";
+import { buildTransactionalEmail } from "./email-template";
 
 const INVITE_EXPIRY_HOURS = 48;
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (ch) => {
-    const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-    return map[ch] || ch;
-  });
-}
 
 export function talentBridgeBaseUrl() {
   return (process.env.TALENTBRIDGE_APP_BASE_URL || "http://localhost:3011").trim().replace(/\/$/, "");
@@ -45,21 +39,14 @@ export async function issueTenantAdminInvite(input: {
 
   const subject = `Activate your TalentBridge Administrator account (${input.tenantName})`;
   const intro = `${input.actorName} created ${input.tenantName} on TalentBridge and named you as the first Administrator. Open the link in this email to activate your account and set your password. You cannot sign in until you activate.`;
-  const text = [
-    `Hi ${user.name},`,
-    "",
+  const { text, html } = buildTransactionalEmail({
+    greetingName: user.name,
     intro,
-    "",
-    `Activate your account: ${url}`,
-    `This activation link expires in ${INVITE_EXPIRY_HOURS} hours and can be used once.`,
-    "",
-    "If you did not expect this email, ignore it.",
-  ].join("\n");
-  const html = `<p>Hi ${escapeHtml(user.name)},</p>
-<p>${escapeHtml(intro)}</p>
-<p><a href="${escapeHtml(url)}">Activate your account</a></p>
-<p>This activation link expires in ${INVITE_EXPIRY_HOURS} hours and can be used once.</p>
-<p>If you did not expect this email, ignore it.</p>`;
+    ctaLabel: "Activate your account",
+    ctaUrl: url,
+    footer: `This activation link expires in ${INVITE_EXPIRY_HOURS} hours and can be used once.`,
+    assetBaseUrl: talentBridgeBaseUrl(),
+  });
 
   let status: "sent" | "stubbed" | "failed" = "stubbed";
   let providerId = "";

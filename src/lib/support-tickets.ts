@@ -5,6 +5,8 @@ import { logPlatformEmail } from "./email-log";
 import type { PlatformSession } from "./auth";
 import { canMutateTickets } from "./platform-rbac";
 import { listOwnedTenantIds } from "./tenants";
+import { buildTransactionalEmail } from "./email-template";
+import { talentBridgeBaseUrl } from "./invite";
 
 type PlatformTicketAuthorKind = "tenant_user" | "platform_staff";
 type PlatformTicketCategory = "access" | "integrations" | "billing" | "bug" | "how_to" | "other";
@@ -216,7 +218,15 @@ async function notifyRequester(input: {
   intro: string;
   actorId: string;
 }) {
-  const talentBridgeUrl = (process.env.TALENTBRIDGE_APP_BASE_URL || "http://localhost:3011").replace(/\/$/, "");
+  const talentBridgeUrl = talentBridgeBaseUrl();
+  const { text, html } = buildTransactionalEmail({
+    greetingName: input.toName,
+    intro: input.intro,
+    ctaLabel: "Open TalentBridge",
+    ctaUrl: talentBridgeUrl,
+    footer: "Sign in to TalentBridge and open Help & Support to view the full thread and reply.",
+    assetBaseUrl: talentBridgeUrl,
+  });
   let status: "sent" | "stubbed" | "failed" = "stubbed";
   let providerId = "";
   let error = "";
@@ -224,10 +234,8 @@ async function notifyRequester(input: {
     const delivery = await sendTransactionalEmail({
       to: input.toEmail,
       subject: input.subject,
-      text: [`Hi ${input.toName},`, "", input.intro, "", `Open Help & Support in TalentBridge: ${talentBridgeUrl}`].join(
-        "\n",
-      ),
-      html: `<p>Hi ${escapeHtml(input.toName)},</p><p>${escapeHtml(input.intro)}</p><p>Open Help &amp; Support in TalentBridge to view the thread.</p>`,
+      text,
+      html,
     });
     status = delivery.stub ? "stubbed" : "sent";
     providerId = delivery.messageId || "";
@@ -250,13 +258,6 @@ async function notifyRequester(input: {
     relatedUserId: input.ticketId,
   });
   return { sent: status === "sent", stub: status === "stubbed", configured: sendgridConfigured() };
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (ch) => {
-    const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-    return map[ch] || ch;
-  });
 }
 
 export async function replyToPlatformTicket(

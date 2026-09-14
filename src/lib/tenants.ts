@@ -3,6 +3,7 @@ import { prisma } from "./db";
 import { platformAudit } from "./audit";
 import { issueTenantAdminInvite } from "./invite";
 import { notifyTenantDisabled, notifyTenantEnabled } from "./platform-mail";
+import { assertBusinessEmail } from "./business-email";
 
 function daysAgo(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -346,9 +347,9 @@ export async function createFirstTenantAdmin(input: {
   actorId: string;
   actorName: string;
 }) {
-  const email = input.email.trim().toLowerCase();
+  const email = assertBusinessEmail(input.email);
   const name = input.name.trim();
-  if (!email || !name) throw new Error("Name and email are required");
+  if (!name) throw new Error("Name and email are required");
 
   const tenant = await prisma.tenant.findUnique({ where: { id: input.tenantId } });
   if (!tenant) throw new Error("Tenant not found");
