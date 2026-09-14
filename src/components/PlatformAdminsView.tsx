@@ -7,6 +7,7 @@ type Admin = {
   id: string;
   name: string;
   email: string;
+  role: "global_admin" | "manager" | "support";
   enabled: boolean;
   mustChangePassword: boolean;
   passwordChangedAt: string | null;
@@ -44,6 +45,7 @@ export function PlatformAdminsView({ selfId }: { selfId: string }) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"global_admin" | "manager" | "support">("manager");
 
   async function load() {
     const res = await fetch("/api/platform-admins");
@@ -69,7 +71,7 @@ export function PlatformAdminsView({ selfId }: { selfId: string }) {
       const res = await fetch("/api/platform-admins", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email }),
+        body: JSON.stringify({ name, email, role }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Invite failed");
@@ -131,7 +133,7 @@ export function PlatformAdminsView({ selfId }: { selfId: string }) {
     <Workspace>
       <Toolbar>
         <p className="text-[13px] text-[var(--color-text-secondary)]">
-          Invite and manage Global Admin accounts. New admins must activate from email.
+          Invite and manage platform users — Global Admin, Manager, and Support. New users must activate from email.
         </p>
       </Toolbar>
       <WorkspaceBody padded>
@@ -139,15 +141,26 @@ export function PlatformAdminsView({ selfId }: { selfId: string }) {
           {error ? <Banner tone="error">{error}</Banner> : null}
           {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-          <form onSubmit={invite} className="grid grid-cols-1 gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <form onSubmit={invite} className="grid grid-cols-1 gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:grid-cols-[1fr_1fr_160px_auto] sm:items-end">
             <Field label="Name">
               <Input value={name} onChange={(e) => setName(e.target.value)} required />
             </Field>
             <Field label="Email">
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </Field>
+            <Field label="Role">
+              <select
+                className="h-9 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[13px]"
+                value={role}
+                onChange={(e) => setRole(e.target.value as typeof role)}
+              >
+                <option value="global_admin">Global Admin</option>
+                <option value="manager">Manager</option>
+                <option value="support">Support</option>
+              </select>
+            </Field>
             <Button type="submit" disabled={busy}>
-              Invite Global Admin
+              Invite user
             </Button>
           </form>
 
@@ -158,7 +171,8 @@ export function PlatformAdminsView({ selfId }: { selfId: string }) {
               <DataTable minWidth="860px">
                 <thead>
                   <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-                    <Th>Admin</Th>
+                    <Th>User</Th>
+                    <Th>Role</Th>
                     <Th>Status</Th>
                     <Th>Last login</Th>
                     <Th align="right">Actions</Th>
@@ -173,6 +187,11 @@ export function PlatformAdminsView({ selfId }: { selfId: string }) {
                           {a.id === selfId ? " (you)" : ""}
                         </p>
                         <p className="text-[12px] text-[var(--color-text-muted)]">{a.email}</p>
+                      </Td>
+                      <Td>
+                        <Badge tone={a.role === "global_admin" ? "blue" : a.role === "manager" ? "green" : "amber"}>
+                          {a.role === "global_admin" ? "Global Admin" : a.role === "manager" ? "Manager" : "Support"}
+                        </Badge>
                       </Td>
                       <Td>
                         <div className="flex flex-wrap gap-1">

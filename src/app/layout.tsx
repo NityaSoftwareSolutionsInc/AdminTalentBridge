@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Manrope, Source_Serif_4 } from "next/font/google";
+import { RequestLoaderProvider } from "@/components/RequestLoader";
 import "./globals.css";
 
 const inter = Inter({
@@ -20,7 +21,7 @@ const sourceSerif = Source_Serif_4({
   display: "swap",
 });
 
-const siteUrl = (process.env.APP_BASE_URL || "http://localhost:3002").replace(/\/$/, "");
+const siteUrl = (process.env.APP_BASE_URL || "http://localhost:3012").replace(/\/$/, "");
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
     default: "TalentBridge Admin",
     template: "%s · TalentBridge Admin",
   },
-  description: "Global Admin — create tenants and invite the first Administrator for each staffing firm.",
+  description: "Platform Admin — Global Admin, Manager, and Support for TalentBridge tenants and help tickets.",
   applicationName: "TalentBridge Admin",
   authors: [{ name: "TalentBridge" }],
   creator: "TalentBridge",
@@ -53,7 +54,7 @@ export const metadata: Metadata = {
     siteName: "TalentBridge Admin",
     title: "TalentBridge · Platform Admin",
     description:
-      "Global Admin console for TalentBridge. Create tenants, manage entitlement, and invite the first Administrator.",
+      "Platform console for TalentBridge. Create tenants, manage entitlement, and handle Help & Support tickets.",
     images: [
       {
         url: "/opengraph-image",
@@ -68,7 +69,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "TalentBridge · Platform Admin",
     description:
-      "Global Admin console for TalentBridge. Create tenants, manage entitlement, and invite the first Administrator.",
+      "Platform console for TalentBridge. Create tenants, manage entitlement, and handle Help & Support tickets.",
     images: [
       {
         url: "/twitter-image",
@@ -87,7 +88,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${manrope.variable} ${sourceSerif.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <RequestLoaderProvider>{children}</RequestLoaderProvider>
+      </body>
     </html>
   );
 }

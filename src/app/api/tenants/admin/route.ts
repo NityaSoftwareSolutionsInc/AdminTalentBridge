@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPlatformSession } from "@/lib/auth";
-import { createFirstTenantAdmin, resendFirstAdminInvite } from "@/lib/tenants";
+import { createFirstTenantAdmin, getTenantCreatedById, resendFirstAdminInvite } from "@/lib/tenants";
+import { assertCanMutateTenant, forbiddenResponse } from "@/lib/platform-rbac";
 
 export async function POST(req: Request) {
   const session = await getPlatformSession();
@@ -15,6 +16,10 @@ export async function POST(req: Request) {
   };
 
   try {
+    const tenantId = String(body.tenantId || "");
+    const createdById = await getTenantCreatedById(tenantId);
+    assertCanMutateTenant(session, createdById);
+
     if (body.resend) {
       if (!body.tenantId || !body.userId) {
         return NextResponse.json({ error: "tenantId and userId are required to resend" }, { status: 400 });
@@ -29,7 +34,7 @@ export async function POST(req: Request) {
     }
 
     const result = await createFirstTenantAdmin({
-      tenantId: String(body.tenantId || ""),
+      tenantId,
       email: String(body.email || ""),
       name: String(body.name || ""),
       actorId: session.platformAdminId,
@@ -37,6 +42,8 @@ export async function POST(req: Request) {
     });
     return NextResponse.json(result);
   } catch (e) {
+    const forbidden = forbiddenResponse(e);
+    if (forbidden) return NextResponse.json({ error: forbidden.error }, { status: forbidden.status });
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
   }
 }

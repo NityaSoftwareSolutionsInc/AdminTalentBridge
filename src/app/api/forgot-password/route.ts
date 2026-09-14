@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({
       ok: true,
-      message: "If that email is a Global Admin account, a reset link has been sent.",
+      message: "If that email is a platform account, a reset link has been sent.",
     });
   }
 }

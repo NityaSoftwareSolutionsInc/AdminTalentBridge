@@ -19,6 +19,9 @@ export type TenantDetail = {
   notes: string;
   accountOwner: string;
   createdAt: string;
+  createdBy?: { id: string; name: string; email: string } | null;
+  canMutate?: boolean;
+  canSupportAccess?: boolean;
   userCount: number;
   mailboxMappedCount: number;
   activeUsers7d: number;
@@ -182,19 +185,23 @@ export function TenantDetailDrawer({
                   </p>
                 </div>
                 <div className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">Health</p>
-                  <p className="mt-1 text-[13px]">Mailboxes mapped: {tenant.mailboxMappedCount}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">Created by</p>
+                  <p className="mt-1 text-[13px] font-medium">{tenant.createdBy?.name || "—"}</p>
                   <p className="mt-1 text-[12px] text-[var(--color-text-muted)]">
-                    Last login: {fmt(tenant.lastUserLoginAt)}
+                    {tenant.createdBy?.email || "Unknown creator"} · {fmt(tenant.createdAt)}
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" disabled={busy} onClick={() => void openSupport()}>
-                  <ExternalLink className="h-4 w-4" />
-                  Open as support
-                </Button>
+                {tenant.canSupportAccess ? (
+                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void openSupport()}>
+                    <ExternalLink className="h-4 w-4" />
+                    Open as support
+                  </Button>
+                ) : null}
+                {tenant.canMutate ? (
+                  <>
                 <Button
                   type="button"
                   variant="secondary"
@@ -223,6 +230,12 @@ export function TenantDetailDrawer({
                 >
                   {tenant.maintenanceMode ? "Clear maintenance" : "Maintenance mode"}
                 </Button>
+                  </>
+                ) : (
+                  <p className="text-[12px] text-[var(--color-text-muted)]">
+                    View only. Managers can change tenants they created.
+                  </p>
+                )}
               </div>
 
               <section className="space-y-3">
@@ -240,7 +253,7 @@ export function TenantDetailDrawer({
                       type="button"
                       variant="secondary"
                       className="min-w-[88px]"
-                      disabled={busy}
+                      disabled={busy || !tenant.canMutate}
                       onClick={() => void patch({ [key]: !value }, `${label} ${value ? "revoked" : "allowed"}.`)}
                     >
                       {value ? "On" : "Off"}
@@ -281,7 +294,7 @@ export function TenantDetailDrawer({
                 </Field>
                 <Button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !tenant.canMutate}
                   onClick={() =>
                     void patch(
                       {

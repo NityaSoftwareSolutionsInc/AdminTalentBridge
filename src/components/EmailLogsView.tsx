@@ -14,6 +14,7 @@ import {
   Workspace,
   WorkspaceBody,
 } from "@/components/ui";
+import { TbLoader } from "@/components/TbLoader";
 
 type Log = {
   id: string;
@@ -87,7 +88,7 @@ export function EmailLogsView() {
       </Toolbar>
       <WorkspaceBody>
         {loading ? (
-          <div className="px-6 py-16 text-center text-[13px] text-[var(--color-text-muted)]">Loading…</div>
+          <TbLoader variant="inline" hint="Loading email delivery" />
         ) : logs.length === 0 ? (
           <EmptyState title="No email delivery logs yet" />
         ) : (

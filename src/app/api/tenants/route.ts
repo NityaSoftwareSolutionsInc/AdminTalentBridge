@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 import { getPlatformSession } from "@/lib/auth";
-import { createTenant, listTenants, updateTenant } from "@/lib/tenants";
+import { createTenant, getTenantCreatedById, listTenants, updateTenant } from "@/lib/tenants";
+import {
+  assertCanCreateTenant,
+  assertCanMutateTenant,
+  canMutateTenant,
+  forbiddenResponse,
+} from "@/lib/platform-rbac";
 
 export async function GET() {
   const session = await getPlatformSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const tenants = await listTenants();
-  return NextResponse.json({ tenants });
+  return NextResponse.json({
+    tenants: tenants.map((t) => ({
+      ...t,
+      canMutate: canMutateTenant(session, t.createdById),
+    })),
+  });
 }
 
 export async function POST(req: Request) {
@@ -27,6 +38,7 @@ export async function POST(req: Request) {
     accountOwner?: string;
   };
   try {
+    assertCanCreateTenant(session);
     const adminName = String(body.adminName || "").trim();
     const adminEmail = String(body.adminEmail || "").trim();
     if (!adminName || !adminEmail) {
@@ -53,8 +65,10 @@ export async function POST(req: Request) {
         viotalkAllowed: body.viotalkAllowed,
       },
     );
-    return NextResponse.json({ tenant });
+    return NextResponse.json({ tenant: { ...tenant, canMutate: true } });
   } catch (e) {
+    const forbidden = forbiddenResponse(e);
+    if (forbidden) return NextResponse.json({ error: forbidden.error }, { status: forbidden.status });
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
   }
 }
@@ -81,9 +95,13 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "tenantId is required" }, { status: 400 });
   }
   try {
+    const createdById = await getTenantCreatedById(body.tenantId);
+    assertCanMutateTenant(session, createdById);
     const tenant = await updateTenant(body.tenantId, body, session.platformAdminId);
     return NextResponse.json({ tenant });
   } catch (e) {
+    const forbidden = forbiddenResponse(e);
+    if (forbidden) return NextResponse.json({ error: forbidden.error }, { status: forbidden.status });
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
   }
 }

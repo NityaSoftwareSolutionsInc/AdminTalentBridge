@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import {
   Building2,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   Mail,
   PanelLeftClose,
@@ -15,25 +16,42 @@ import { TalentBridgeMark } from "@/components/TalentBridgeMark";
 import { Badge } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
-export type AdminNavKey = "dashboard" | "organizations" | "audit" | "platform-admins" | "email-logs";
+export type AdminNavKey =
+  | "dashboard"
+  | "organizations"
+  | "tickets"
+  | "audit"
+  | "platform-admins"
+  | "email-logs";
+
+export type AdminSessionRole = "global_admin" | "manager" | "support";
+
+const ROLE_LABEL: Record<AdminSessionRole, string> = {
+  global_admin: "Global Admin",
+  manager: "Manager",
+  support: "Support",
+};
 
 const NAV_ITEMS: Array<{
   key: AdminNavKey;
   label: string;
   icon: typeof Building2;
+  roles: AdminSessionRole[];
 }> = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "organizations", label: "Organizations", icon: Building2 },
-  { key: "audit", label: "Audit log", icon: ScrollText },
-  { key: "platform-admins", label: "Global Admins", icon: Shield },
-  { key: "email-logs", label: "Email delivery", icon: Mail },
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["global_admin", "manager", "support"] },
+  { key: "organizations", label: "Organizations", icon: Building2, roles: ["global_admin", "manager", "support"] },
+  { key: "tickets", label: "Tickets", icon: LifeBuoy, roles: ["global_admin", "manager", "support"] },
+  { key: "audit", label: "Audit log", icon: ScrollText, roles: ["global_admin", "manager"] },
+  { key: "platform-admins", label: "Platform users", icon: Shield, roles: ["global_admin"] },
+  { key: "email-logs", label: "Email delivery", icon: Mail, roles: ["global_admin"] },
 ];
 
 const TITLES: Record<AdminNavKey, string> = {
   dashboard: "Dashboard",
   organizations: "Organizations",
+  tickets: "Tickets",
   audit: "Audit log",
-  "platform-admins": "Global Admins",
+  "platform-admins": "Platform users",
   "email-logs": "Email delivery",
 };
 
@@ -59,6 +77,7 @@ type AdminShellProps = {
   active: AdminNavKey;
   onNavigate: (key: AdminNavKey) => void;
   sessionName: string;
+  sessionRole?: AdminSessionRole;
   sendgridConfigured: boolean;
   primaryAction?: ReactNode;
   children: ReactNode;
@@ -68,6 +87,7 @@ export function AdminShell({
   active,
   onNavigate,
   sessionName,
+  sessionRole = "global_admin",
   sendgridConfigured,
   primaryAction,
   children,
@@ -142,7 +162,7 @@ export function AdminShell({
           className={cn("flex-1 overflow-auto", navCollapsed ? "space-y-0.5 p-1.5" : "space-y-0.5 p-2")}
           aria-label="Primary"
         >
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => item.roles.includes(sessionRole)).map((item) => {
             const Icon = item.icon;
             const isActive = active === item.key;
             return (
@@ -174,11 +194,11 @@ export function AdminShell({
             )}
             title={sessionName || "Account"}
           >
-            <Avatar name={sessionName || "Global Admin"} />
+            <Avatar name={sessionName || ROLE_LABEL[sessionRole]} />
             {!navCollapsed ? (
               <div className="min-w-0">
-                <div className="truncate text-[12px] font-medium">{sessionName || "Global Admin"}</div>
-                <div className="truncate text-[11px] text-blue-200/90">Global Admin</div>
+                <div className="truncate text-[12px] font-medium">{sessionName || ROLE_LABEL[sessionRole]}</div>
+                <div className="truncate text-[11px] text-blue-200/90">{ROLE_LABEL[sessionRole]}</div>
               </div>
             ) : null}
           </div>

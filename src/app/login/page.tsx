@@ -3,6 +3,7 @@
 import { FormEvent, Suspense, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TalentBridgeMark } from "@/components/TalentBridgeMark";
+import { TbLoader } from "@/components/TbLoader";
 
 function Logo({
   theme = "light",
@@ -65,7 +66,7 @@ function AuthShell({
             Govern every TalentBridge tenant from one console
           </p>
           <p className="mt-5 max-w-[30rem] text-[15px] leading-6 text-slate-300">
-            Create organizations, enable JobsNProfiles entitlement, and invite the first Administrator — without entering a tenant workspace.
+            Create organizations, handle Help & Support tickets, and invite the first Administrator — without entering a tenant workspace.
           </p>
           <ul className="mt-10 space-y-5 text-[13px]">
             <li className="flex gap-3">
@@ -92,7 +93,7 @@ function AuthShell({
           </ul>
         </div>
         <footer className="relative z-[1] border-t border-white/10 pt-6 text-[12px] text-slate-500">
-          Global Admin only · Separate from tenant Administrator roles
+          Global Admin, Manager, and Support · Separate from tenant Administrator roles
         </footer>
       </aside>
 
@@ -122,7 +123,7 @@ function AuthShell({
 
         <footer className="relative z-[1] border-t border-slate-200/80 px-6 py-4 sm:px-10 lg:px-12">
           <div className="mx-auto flex max-w-[520px] flex-col gap-1 text-[11px] leading-4 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <span>Platform console for Global Admins</span>
+            <span>Platform console</span>
             <span className="text-slate-400">Unauthorized access is prohibited</span>
           </div>
         </footer>
@@ -179,7 +180,7 @@ function LoginForm() {
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      setNotice(data.message || "If that email is a Global Admin account, a reset link has been sent.");
+      setNotice(data.message || "If that email is a platform account, a reset link has been sent.");
       setMode("signin");
     } catch {
       setError("Could not send reset email");
@@ -200,7 +201,7 @@ function LoginForm() {
         </h1>
         <p className="mt-2.5 text-[14px] leading-[1.55] text-slate-500">
           {mode === "forgot"
-            ? "Enter the Global Admin email. If it matches an account, we will send a reset link."
+            ? "Enter the platform account email. If it matches an account, we will send a reset link."
             : "Platform credentials only. Tenant users sign in on TalentBridge Contact Manager."}
         </p>
       </div>
@@ -305,7 +306,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-[#0b1f3a]" />}>
+    <Suspense fallback={<TbLoader variant="page" hint="Loading sign-in" />}>
       <LoginForm />
     </Suspense>
   );

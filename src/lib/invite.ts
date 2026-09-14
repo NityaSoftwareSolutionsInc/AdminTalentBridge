@@ -13,7 +13,7 @@ function escapeHtml(value: string) {
 }
 
 export function talentBridgeBaseUrl() {
-  return (process.env.TALENTBRIDGE_APP_BASE_URL || "http://localhost:3001").trim().replace(/\/$/, "");
+  return (process.env.TALENTBRIDGE_APP_BASE_URL || "http://localhost:3011").trim().replace(/\/$/, "");
 }
 
 export async function issueTenantAdminInvite(input: {

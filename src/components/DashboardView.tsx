@@ -15,8 +15,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Building2, Link2, Mail, ShieldAlert, ShieldCheck, UserRound, Users, Activity } from "lucide-react";
+import { Building2, Link2, LifeBuoy, Mail, ShieldAlert, ShieldCheck, UserRound, Users, Activity } from "lucide-react";
 import { Button, Panel, PageIntro, Workspace, WorkspaceBody } from "@/components/ui";
+import { TbLoader } from "@/components/TbLoader";
 import { cn } from "@/lib/cn";
 
 export type DashboardTenant = {
@@ -145,12 +146,18 @@ export function DashboardView({
   tenants,
   auditEvents,
   loading,
+  openTicketCount = 0,
+  ownedTenantCount,
   onOpenOrganizations,
+  onOpenTickets,
 }: {
   tenants: DashboardTenant[];
   auditEvents: DashboardAudit[];
   loading: boolean;
+  openTicketCount?: number;
+  ownedTenantCount?: number;
   onOpenOrganizations: () => void;
+  onOpenTickets?: () => void;
 }) {
   const total = tenants.length;
   const enabled = tenants.filter((t) => t.enabled).length;
@@ -187,11 +194,7 @@ export function DashboardView({
   const activity = buildActivitySeries(auditEvents, 14);
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-[13px] text-[var(--color-text-muted)]">
-        Loading dashboard…
-      </div>
-    );
+    return <TbLoader variant="inline" hint="Loading dashboard" className="h-full" />;
   }
 
   return (
@@ -200,9 +203,16 @@ export function DashboardView({
         <div className="flex w-full flex-col gap-4">
           <PageIntro
             meta={
-              <Button variant="secondary" type="button" onClick={onOpenOrganizations}>
-                Manage organizations
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" type="button" onClick={onOpenOrganizations}>
+                  Manage organizations
+                </Button>
+                {onOpenTickets ? (
+                  <Button variant="secondary" type="button" onClick={onOpenTickets}>
+                    Tickets
+                  </Button>
+                ) : null}
+              </div>
             }
           >
             Platform health across all TalentBridge tenants — entitlement, users, and admin activity.
@@ -226,12 +236,21 @@ export function DashboardView({
               tone={pendingInvites ? "amber" : "green"}
             />
             <StatCard
-              label="Disabled"
-              value={disabled}
-              hint="Cannot sign in"
-              icon={ShieldCheck}
-              tone={disabled ? "amber" : "green"}
+              label="Open tickets"
+              value={openTicketCount}
+              hint="Help queue"
+              icon={LifeBuoy}
+              tone={openTicketCount ? "amber" : "green"}
             />
+            {ownedTenantCount != null ? (
+              <StatCard
+                label="My tenants"
+                value={ownedTenantCount}
+                hint="Created by you"
+                icon={Building2}
+                tone="blue"
+              />
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -248,6 +267,13 @@ export function DashboardView({
               hint="Outlook connections"
               icon={Mail}
               tone="slate"
+            />
+            <StatCard
+              label="Disabled"
+              value={disabled}
+              hint="Cannot sign in"
+              icon={ShieldCheck}
+              tone={disabled ? "amber" : "green"}
             />
             <StatCard
               label="Maintenance"

@@ -1,21 +1,26 @@
 import { NextResponse } from "next/server";
 import { getPlatformSession } from "@/lib/auth";
-import { listPlatformEmailLogs } from "@/lib/email-log";
-import { assertCanViewEmailLogs, forbiddenResponse } from "@/lib/platform-rbac";
+import { countOpenTickets, listPlatformTickets } from "@/lib/support-tickets";
+import { assertCanViewTickets, canMutateTickets, forbiddenResponse } from "@/lib/platform-rbac";
 
 export async function GET(req: Request) {
   const session = await getPlatformSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    assertCanViewEmailLogs(session);
+    assertCanViewTickets(session);
     const { searchParams } = new URL(req.url);
-    const logs = await listPlatformEmailLogs({
-      status: searchParams.get("status") || undefined,
-      kind: searchParams.get("kind") || undefined,
-      q: searchParams.get("q") || undefined,
-      limit: Number(searchParams.get("limit") || 100),
+    const [tickets, openCount] = await Promise.all([
+      listPlatformTickets(session, {
+        status: searchParams.get("status") || undefined,
+        q: searchParams.get("q") || undefined,
+      }),
+      countOpenTickets(session),
+    ]);
+    return NextResponse.json({
+      tickets,
+      openCount,
+      canMutate: canMutateTickets(session),
     });
-    return NextResponse.json({ logs });
   } catch (e) {
     const forbidden = forbiddenResponse(e);
     if (forbidden) return NextResponse.json({ error: forbidden.error }, { status: forbidden.status });

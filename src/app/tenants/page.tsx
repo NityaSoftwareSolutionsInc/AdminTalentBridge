@@ -3,11 +3,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Search, X } from "lucide-react";
-import { AdminShell, type AdminNavKey } from "@/components/AdminShell";
+import { AdminShell, type AdminNavKey, type AdminSessionRole } from "@/components/AdminShell";
 import { DashboardView } from "@/components/DashboardView";
 import { EmailLogsView } from "@/components/EmailLogsView";
 import { PlatformAdminsView } from "@/components/PlatformAdminsView";
+import { TicketsView } from "@/components/TicketsView";
 import { TenantDetailDrawer } from "@/components/TenantDetailDrawer";
+import { TbLoader } from "@/components/TbLoader";
 import {
   Badge,
   Banner,
@@ -53,6 +55,9 @@ type TenantRow = {
   legalName?: string;
   region?: string;
   accountOwner?: string;
+  createdBy?: { id: string; name: string; email: string } | null;
+  createdById?: string | null;
+  canMutate?: boolean;
 };
 
 type InviteResult = {
@@ -77,7 +82,7 @@ type AuditRow = {
   createdAt: string;
 };
 
-type OrgFilter = "all" | "enabled" | "disabled" | "jnp" | "pending";
+type OrgFilter = "all" | "mine" | "enabled" | "disabled" | "jnp" | "pending";
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -115,8 +120,10 @@ export default function TenantsPage() {
   const [nav, setNav] = useState<AdminNavKey>("dashboard");
   const [sessionName, setSessionName] = useState("");
   const [sessionPlatformAdminId, setSessionPlatformAdminId] = useState("");
+  const [sessionRole, setSessionRole] = useState<AdminSessionRole>("global_admin");
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [sendgridConfigured, setSendgridConfigured] = useState(false);
+  const [openTicketCount, setOpenTicketCount] = useState(0);
   const [tenants, setTenants] = useState<TenantRow[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +147,7 @@ export default function TenantsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordBusy, setPasswordBusy] = useState(false);
+  const navReadyRef = useRef(false);
   const auditFiltersRef = useRef({ q: "", action: "", from: "", to: "" });
   auditFiltersRef.current = { q: auditQ, action: auditAction, from: auditFrom, to: auditTo };
 
@@ -157,18 +165,31 @@ export default function TenantsPage() {
   }, []);
 
   const load = useCallback(async () => {
-    const [sessionRes, tenantsRes] = await Promise.all([fetch("/api/session"), fetch("/api/tenants")]);
+    const [sessionRes, tenantsRes, ticketsRes] = await Promise.all([
+      fetch("/api/session"),
+      fetch("/api/tenants"),
+      fetch("/api/tickets"),
+    ]);
     if (sessionRes.status === 401) {
       router.replace("/login");
       return;
     }
     const sessionData = await sessionRes.json();
     const tenantsData = await tenantsRes.json();
+    const ticketsData = ticketsRes.ok ? await ticketsRes.json() : { openCount: 0 };
+    const role = (sessionData.session?.role || "global_admin") as AdminSessionRole;
     setSessionName(sessionData.session?.name || "");
     setSessionPlatformAdminId(sessionData.session?.platformAdminId || "");
+    setSessionRole(role);
     setMustChangePassword(Boolean(sessionData.session?.mustChangePassword));
     setSendgridConfigured(Boolean(sessionData.sendgridConfigured));
     setTenants(tenantsData.tenants || []);
+    setOpenTicketCount(ticketsData.openCount || 0);
+    if (!navReadyRef.current) {
+      setNav(role === "support" ? "tickets" : "dashboard");
+      setFilter(role === "manager" ? "mine" : "all");
+      navReadyRef.current = true;
+    }
     await loadAudit();
     setLoading(false);
   }, [router, loadAudit]);
@@ -189,6 +210,7 @@ export default function TenantsPage() {
   const filteredTenants = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tenants.filter((t) => {
+      if (filter === "mine" && t.createdById !== sessionPlatformAdminId) return false;
       if (filter === "enabled" && !t.enabled) return false;
       if (filter === "disabled" && t.enabled) return false;
       if (filter === "jnp" && !t.jnpAllowed) return false;
@@ -198,9 +220,10 @@ export default function TenantsPage() {
       }
       if (!q) return true;
       const adminHay = t.admins.map((a) => `${a.name} ${a.email}`).join(" ");
-      return `${t.name} ${adminHay}`.toLowerCase().includes(q);
+      const creatorHay = t.createdBy ? `${t.createdBy.name} ${t.createdBy.email}` : "";
+      return `${t.name} ${adminHay} ${creatorHay}`.toLowerCase().includes(q);
     });
-  }, [tenants, query, filter]);
+  }, [tenants, query, filter, sessionPlatformAdminId]);
 
   function formatInvite(invite?: InviteResult | null) {
     if (!invite) return "";
@@ -369,6 +392,7 @@ export default function TenantsPage() {
 
   const filters: Array<{ key: OrgFilter; label: string }> = [
     { key: "all", label: "All" },
+    ...(sessionRole === "manager" ? [{ key: "mine" as const, label: "My organizations" }] : []),
     { key: "enabled", label: "Enabled" },
     { key: "disabled", label: "Disabled" },
     { key: "jnp", label: "JNP allowed" },
@@ -386,9 +410,10 @@ export default function TenantsPage() {
           if (key !== "organizations") setShowCreate(false);
         }}
         sessionName={sessionName}
+        sessionRole={sessionRole}
         sendgridConfigured={sendgridConfigured}
         primaryAction={
-          nav === "organizations" ? (
+          nav === "organizations" && sessionRole !== "support" ? (
             <Button
               type="button"
               onClick={() => {
@@ -407,8 +432,17 @@ export default function TenantsPage() {
             tenants={tenants}
             auditEvents={auditEvents}
             loading={loading}
+            openTicketCount={openTicketCount}
+            ownedTenantCount={
+              sessionRole === "manager"
+                ? tenants.filter((t) => t.createdById === sessionPlatformAdminId).length
+                : undefined
+            }
             onOpenOrganizations={() => setNav("organizations")}
+            onOpenTickets={() => setNav("tickets")}
           />
+        ) : nav === "tickets" ? (
+          <TicketsView selfId={sessionPlatformAdminId} />
         ) : nav === "platform-admins" ? (
           <PlatformAdminsView selfId={sessionPlatformAdminId} />
         ) : nav === "email-logs" ? (
@@ -451,9 +485,7 @@ export default function TenantsPage() {
 
                 <WorkspaceBody>
                   {loading ? (
-                    <div className="px-6 py-16 text-center text-[13px] text-[var(--color-text-muted)]">
-                      Loading tenants…
-                    </div>
+                    <TbLoader variant="inline" hint="Loading tenants" />
                   ) : filteredTenants.length === 0 ? (
                     <EmptyState
                       title={tenants.length === 0 ? "No tenants yet" : "No matches"}
@@ -463,7 +495,7 @@ export default function TenantsPage() {
                           : "Try a different search or filter."
                       }
                       action={
-                        tenants.length === 0 ? (
+                        tenants.length === 0 && sessionRole !== "support" ? (
                           <Button type="button" onClick={() => setShowCreate(true)}>
                             <Plus className="h-4 w-4" />
                             Create tenant
@@ -516,6 +548,7 @@ export default function TenantsPage() {
                                 </p>
                                 <p className="mt-0.5 text-[12px] text-[var(--color-text-muted)]">
                                   Created {formatDate(tenant.createdAt)}
+                                  {tenant.createdBy ? ` · by ${tenant.createdBy.name}` : ""}
                                 </p>
                               </Td>
                               <Td>
@@ -549,7 +582,7 @@ export default function TenantsPage() {
                                             : "Not activated"}
                                       </p>
                                     </div>
-                                    {!firstAdmin.passwordSet ? (
+                                    {!firstAdmin.passwordSet && tenant.canMutate ? (
                                       <Button
                                         type="button"
                                         variant="secondary"
@@ -560,7 +593,7 @@ export default function TenantsPage() {
                                       </Button>
                                     ) : null}
                                   </div>
-                                ) : (
+                                ) : tenant.canMutate ? (
                                   <div>
                                     <p className="mb-2 text-[13px] text-[var(--color-text-muted)]">
                                       No administrator yet
@@ -600,10 +633,14 @@ export default function TenantsPage() {
                                       </Button>
                                     </div>
                                   </div>
+                                ) : (
+                                  <p className="text-[13px] text-[var(--color-text-muted)]">No administrator yet</p>
                                 )}
                               </Td>
                               <Td align="right">
                                 <div className="flex flex-col items-end gap-2">
+                                  {tenant.canMutate ? (
+                                    <>
                                   <Button
                                     type="button"
                                     variant="secondary"
@@ -622,6 +659,10 @@ export default function TenantsPage() {
                                   >
                                     {tenant.enabled ? "Disable" : "Enable"}
                                   </Button>
+                                    </>
+                                  ) : (
+                                    <span className="text-[12px] text-[var(--color-text-muted)]">View only</span>
+                                  )}
                                 </div>
                               </Td>
                             </tr>
@@ -692,9 +733,7 @@ export default function TenantsPage() {
                 </Toolbar>
                 <WorkspaceBody>
                   {loading ? (
-                    <div className="px-6 py-16 text-center text-[13px] text-[var(--color-text-muted)]">
-                      Loading audit…
-                    </div>
+                    <TbLoader variant="inline" hint="Loading audit" />
                   ) : auditEvents.length === 0 ? (
                     <EmptyState title="No platform audit events yet" />
                   ) : (

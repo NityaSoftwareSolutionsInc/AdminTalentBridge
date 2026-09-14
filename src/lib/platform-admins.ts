@@ -3,6 +3,7 @@ import { platformAudit } from "./audit";
 import { assertPassword, hashPassword, hashToken, newSecretToken } from "./password";
 import { sendTransactionalEmail, sendgridConfigured } from "@/integrations/sendgrid";
 import { logPlatformEmail } from "./email-log";
+import { PLATFORM_ROLE_LABEL, type PlatformRole } from "./platform-rbac";
 
 const INVITE_EXPIRY_HOURS = 48;
 const LOCK_AFTER_FAILURES = 5;
@@ -16,29 +17,42 @@ function escapeHtml(value: string) {
 }
 
 function adminBaseUrl() {
-  return (process.env.APP_BASE_URL || "http://localhost:3002").trim().replace(/\/$/, "");
+  return (process.env.APP_BASE_URL || "http://localhost:3012").trim().replace(/\/$/, "");
 }
 
 export async function listPlatformAdmins() {
   const rows = await prisma.platformAdmin.findMany({ orderBy: { createdAt: "asc" } });
-  return rows.map((a) => ({
-    id: a.id,
-    name: a.name,
-    email: a.email,
-    enabled: a.enabled,
-    mustChangePassword: a.mustChangePassword,
-    passwordChangedAt: a.passwordChangedAt?.toISOString() ?? null,
-    lastLoginAt: a.lastLoginAt?.toISOString() ?? null,
-    failedLoginCount: a.failedLoginCount,
-    lockedUntil: a.lockedUntil?.toISOString() ?? null,
-    inviteSentAt: a.inviteSentAt?.toISOString() ?? null,
-    createdAt: a.createdAt.toISOString(),
-  }));
+  return rows.map((a) => {
+    const row = a as typeof a & {
+      role?: PlatformRole;
+      mustChangePassword?: boolean;
+      passwordChangedAt?: Date | null;
+      lastLoginAt?: Date | null;
+      failedLoginCount?: number;
+      lockedUntil?: Date | null;
+      inviteSentAt?: Date | null;
+    };
+    return {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role || "global_admin",
+      enabled: row.enabled,
+      mustChangePassword: Boolean(row.mustChangePassword),
+      passwordChangedAt: row.passwordChangedAt?.toISOString() ?? null,
+      lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+      failedLoginCount: row.failedLoginCount ?? 0,
+      lockedUntil: row.lockedUntil?.toISOString() ?? null,
+      inviteSentAt: row.inviteSentAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+    };
+  });
 }
 
 export async function invitePlatformAdmin(input: {
   name: string;
   email: string;
+  role: PlatformRole;
   actorId: string;
   actorName: string;
 }) {
@@ -47,17 +61,18 @@ export async function invitePlatformAdmin(input: {
   if (!email || !name) throw new Error("Name and email are required");
 
   const existing = await prisma.platformAdmin.findUnique({ where: { email } });
-  if (existing) throw new Error("A Global Admin with that email already exists");
+  if (existing) throw new Error("A platform user with that email already exists");
 
   const tempHash = await hashPassword(newSecretToken().slice(0, 24) + "Aa1!");
   const admin = await prisma.platformAdmin.create({
     data: {
       email,
       name,
+      role: input.role,
       passwordHash: tempHash,
       enabled: true,
       mustChangePassword: true,
-    },
+    } as never,
   });
 
   const invite = await issuePlatformAdminInvite({
@@ -71,7 +86,7 @@ export async function invitePlatformAdmin(input: {
     action: "invite_platform_admin",
     entityType: "platform_admin",
     entityId: admin.id,
-    after: { email, name, inviteSent: invite.sent, inviteStubbed: invite.stub },
+    after: { email, name, role: input.role, inviteSent: invite.sent, inviteStubbed: invite.stub },
   });
 
   return { id: admin.id, name: admin.name, email: admin.email, invite };
@@ -100,8 +115,9 @@ export async function issuePlatformAdminInvite(input: {
     },
   });
 
-  const subject = "Activate your TalentBridge Global Admin account";
-  const intro = `${input.actorName} invited you as a Global Admin on TalentBridge Platform Admin. Activate from this email to set your password.`;
+  const roleLabel = PLATFORM_ROLE_LABEL[(admin as { role?: PlatformRole }).role || "global_admin"];
+  const subject = `Activate your TalentBridge ${roleLabel} account`;
+  const intro = `${input.actorName} invited you as ${roleLabel} on TalentBridge Platform Admin. Activate from this email to set your password.`;
   let status: "sent" | "stubbed" | "failed" = "stubbed";
   let providerId = "";
   let error = "";

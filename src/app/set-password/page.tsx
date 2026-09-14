@@ -3,6 +3,7 @@
 import { Suspense, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TalentBridgeMark } from "@/components/TalentBridgeMark";
+import { TbLoader } from "@/components/TbLoader";
 
 function Logo({ size = 34 }: { size?: number }) {
   return (
@@ -137,13 +138,7 @@ function SetPasswordForm() {
 
 export default function SetPasswordPage() {
   return (
-    <Suspense
-      fallback={
-        <AuthCard>
-          <p className="text-[13px] text-slate-500">Loading…</p>
-        </AuthCard>
-      }
-    >
+    <Suspense fallback={<TbLoader variant="page" hint="Loading" />}>
       <SetPasswordForm />
     </Suspense>
   );

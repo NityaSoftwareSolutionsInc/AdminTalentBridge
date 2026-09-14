@@ -17,7 +17,7 @@ function adminBaseUrl(originHeader?: string | null) {
   const configured = (process.env.APP_BASE_URL || "").trim().replace(/\/$/, "");
   if (configured) return configured;
   if (originHeader) return originHeader.replace(/\/$/, "");
-  return "http://localhost:3002";
+  return "http://localhost:3012";
 }
 
 async function deliver(input: {
@@ -68,7 +68,7 @@ export async function requestPlatformAdminForgotPassword(emailRaw: string, origi
   const email = String(emailRaw || "").trim().toLowerCase();
   const generic = {
     ok: true as const,
-    message: "If that email is a Global Admin account, a reset link has been sent.",
+    message: "If that email is a platform account, a reset link has been sent.",
   };
   if (!email || !email.includes("@")) return generic;
 
@@ -93,8 +93,8 @@ export async function requestPlatformAdminForgotPassword(emailRaw: string, origi
     await deliver({
       to: admin.email,
       name: admin.name,
-      subject: "Reset your TalentBridge Global Admin password",
-      intro: "A password reset was requested for your TalentBridge Global Admin account.",
+      subject: "Reset your TalentBridge platform password",
+      intro: "A password reset was requested for your TalentBridge platform account.",
       ctaLabel: "Set your password",
       ctaUrl: url,
       footer: `This link expires in ${RESET_EXPIRY_HOURS} hours.`,
@@ -136,8 +136,8 @@ export async function completePlatformAdminPasswordSetup(token: string, password
     await deliver({
       to: admin.email,
       name: admin.name,
-      subject: "Your TalentBridge Global Admin password was changed",
-      intro: "Your Global Admin password was set or changed successfully. If you did not do this, secure the account and rotate SendGrid/platform secrets.",
+      subject: "Your TalentBridge platform password was changed",
+      intro: "Your platform password was set or changed successfully. If you did not do this, secure the account and rotate SendGrid/platform secrets.",
       stubLabel: "platform-admin-password-changed",
     });
   } catch (error) {

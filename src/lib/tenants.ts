@@ -24,6 +24,7 @@ type TenantRecord = {
   notes: string;
   accountOwner: string;
   createdAt: Date;
+  createdById: string | null;
 };
 
 type AdminUserRow = {
@@ -52,6 +53,7 @@ function mapTenantBase(t: TenantRecord) {
     notes: t.notes,
     accountOwner: t.accountOwner,
     createdAt: t.createdAt.toISOString(),
+    createdById: t.createdById,
   };
 }
 
@@ -72,6 +74,7 @@ function asTenantRecord(value: unknown): TenantRecord {
     notes: String(t.notes || ""),
     accountOwner: String(t.accountOwner || ""),
     createdAt: t.createdAt,
+    createdById: t.createdById || null,
   };
 }
 
@@ -83,6 +86,7 @@ export async function listTenants() {
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { users: true, mailboxMaps: true } },
+      createdBy: { select: { id: true, name: true, email: true } },
       users: {
         where: { memberships: { some: { role: TbRole.admin } } },
         take: 5,
@@ -97,11 +101,12 @@ export async function listTenants() {
           lastLoginAt: true,
         },
       },
-    },
+    } as never,
   })) as unknown as Array<
     TenantRecord & {
       _count: { users: number; mailboxMaps: number };
       users: AdminUserRow[];
+      createdBy: { id: string; name: string; email: string } | null;
     }
   >;
 
@@ -151,6 +156,9 @@ export async function listTenants() {
 
     return {
       ...mapTenantBase(t),
+      createdBy: t.createdBy
+        ? { id: t.createdBy.id, name: t.createdBy.name, email: t.createdBy.email }
+        : null,
       userCount: t._count.users,
       mailboxMappedCount: t._count.mailboxMaps,
       activeUsers7d: map7.get(t.id) || 0,
@@ -294,6 +302,7 @@ export async function createTenant(
         region: String(meta?.region || "").trim(),
         notes: String(meta?.notes || "").trim(),
         accountOwner: String(meta?.accountOwner || "").trim(),
+        createdById: actorId,
         settings: { create: {} },
       } as never,
     }),
@@ -442,4 +451,21 @@ export async function resendFirstAdminInvite(input: {
   });
 
   return { id: user.id, email: user.email, invite };
+}
+
+export async function getTenantCreatedById(tenantId: string) {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { createdById: true } as never,
+  });
+  if (!tenant) throw new Error("Tenant not found");
+  return (tenant as { createdById?: string | null }).createdById ?? null;
+}
+
+export async function listOwnedTenantIds(platformAdminId: string) {
+  const rows = await prisma.tenant.findMany({
+    where: { createdById: platformAdminId } as never,
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
 }

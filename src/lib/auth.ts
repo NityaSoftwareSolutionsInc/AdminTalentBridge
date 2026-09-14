@@ -1,11 +1,13 @@
 import { cookies } from "next/headers";
 import { prisma } from "./db";
 import { SESSION_COOKIE, verifyPlatformToken } from "./jwt";
+import type { PlatformRole } from "./platform-rbac";
 
 export type PlatformSession = {
   platformAdminId: string;
   name: string;
   email: string;
+  role: PlatformRole;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
 };
@@ -28,6 +30,7 @@ export async function getPlatformSession(): Promise<PlatformSession | null> {
     platformAdminId: admin.id,
     name: admin.name,
     email: admin.email,
+    role: (admin as { role?: PlatformRole }).role || "global_admin",
     mustChangePassword: Boolean(admin.mustChangePassword),
     lastLoginAt: admin.lastLoginAt?.toISOString() ?? null,
   };
